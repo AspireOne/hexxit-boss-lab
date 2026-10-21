@@ -84,6 +84,11 @@ tasks.register('verifyBytecode') {
 }
 check.dependsOn('verifyBytecode')
 
+tasks.register('workflowTest', Exec) {
+    commandLine 'python', '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_*.py', '-v'
+}
+check.dependsOn('workflowTest')
+
 tasks.withType(AbstractArchiveTask).configureEach {
     preserveFileTimestamps = false
     reproducibleFileOrder = true
