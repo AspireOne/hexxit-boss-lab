@@ -1,6 +1,8 @@
 package dev.hexxitlab;
 
 import cpw.mods.fml.client.registry.RenderingRegistry;
+import dev.hexxitlab.sovereign.Sovereign;
+import dev.hexxitlab.sovereign.SovereignRenderer;
 import net.minecraft.client.model.ModelBiped;
 import net.minecraft.client.renderer.entity.RenderLiving;
 import net.minecraft.entity.EntityLiving;
@@ -9,6 +11,7 @@ public final class ClientProxy extends CommonProxy {
   @Override
   public void registerRenderers() {
     RenderingRegistry.registerEntityRenderingHandler(LabTarget.class, new TargetRenderer());
+    RenderingRegistry.registerEntityRenderingHandler(Sovereign.class, new SovereignRenderer());
   }
 
   private static final class TargetRenderer extends RenderLiving {

@@ -7,6 +7,7 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import cpw.mods.fml.common.network.NetworkMod;
 import cpw.mods.fml.common.registry.EntityRegistry;
+import dev.hexxitlab.sovereign.Sovereign;
 import java.util.logging.Logger;
 import net.minecraftforge.common.MinecraftForge;
 
@@ -23,6 +24,7 @@ public final class BossLab {
   public void initialize(FMLPreInitializationEvent event) {
     LOGGER.setParent(FMLLog.getLogger());
     EntityRegistry.registerModEntity(LabTarget.class, "LabTarget", 1, this, 80, 1, true);
+    EntityRegistry.registerModEntity(Sovereign.class, "Sovereign", 2, this, 160, 1, true);
     MinecraftForge.EVENT_BUS.register(new TargetDrops());
     proxy.registerRenderers();
     LOGGER.info("Hexxit Boss Lab initialized");
