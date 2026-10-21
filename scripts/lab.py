@@ -350,7 +350,22 @@ def launch():
     subprocess.Popen([str(executable), '--launch', TARGET.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def smoke():
+def restore_smoke_world(snapshot, world, run):
+    """Restore the combat test's exact starting save, retaining the exercised save."""
+    require_child(snapshot, run)
+    require_child(world, TARGET / 'minecraft/saves')
+    staged = world.with_name(world.name + '.boss-restore')
+    require_child(staged, TARGET / 'minecraft/saves')
+    if staged.exists() or (run / 'world-after').exists():
+        raise RuntimeError('Interrupted combat restore exists; inspect ' + str(run))
+    shutil.copytree(snapshot, staged)
+    if tree_hashes(staged) != tree_hashes(snapshot):
+        raise RuntimeError('Combat snapshot copy mismatch; current save preserved')
+    world.rename(run / 'world-after')
+    staged.rename(world)
+
+
+def smoke(scenario='target'):
     apply()
     gradle('harnessArtifactManifest')
     harness = artifact_from_manifest('harness')
@@ -358,13 +373,20 @@ def smoke():
     run = STATE / 'runs' / (time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:8])
     run.mkdir(parents=True)
     write_json(run / 'environment.json', fingerprint())
+    world = TARGET / 'minecraft/saves' / WORLD
+    snapshot = run / 'world-before'
+    if scenario == 'sovereign':
+        ensure_stopped()
+        require_child(world, TARGET / 'minecraft/saves')
+        shutil.copytree(world, snapshot)
+        write_json(run / 'world-before-hashes.json', tree_hashes(snapshot))
     succeeded = False
     try:
         # Two real game launches exercise the world persistence boundary.
         for phase in ('create', 'reload'):
             ensure_stopped()
             request = TARGET / 'minecraft/bosslab-smoke.properties'
-            request.write_text('phase=' + phase + '\nworld=' + WORLD + '\nrun=' + run.name + '\n', encoding='ascii')
+            request.write_text('phase=' + phase + '\nworld=' + WORLD + '\nrun=' + run.name + '\nscenario=' + scenario + '\n', encoding='ascii')
             result = TARGET / 'minecraft' / ('bosslab-' + phase + '-result.properties')
             result.unlink(missing_ok=True)
             started = time.time()
@@ -415,6 +437,12 @@ def smoke():
             print('Close the failed lab game, then run apply to remove the test harness.', file=sys.stderr)
         else:
             (TARGET / 'minecraft/mods' / HARNESS_FILE).unlink(missing_ok=True)
+            if scenario == 'sovereign':
+                if tree_hashes(snapshot) != read_json(run / 'world-before-hashes.json'):
+                    raise RuntimeError('Combat snapshot changed; refusing restoration')
+                restore_smoke_world(snapshot, world, run)
+                write_json(run / 'world-restored.json', {'restored': True})
+                print('Restored the exact pre-test lab save; exercised save retained in ' + str(run))
 
 
 @contextlib.contextmanager
@@ -434,7 +462,7 @@ def operation_lock():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['setup', 'check', 'build', 'apply', 'play', 'smoke', 'reset-world', 'rollback'])
+    parser.add_argument('command', choices=['setup', 'check', 'build', 'apply', 'play', 'smoke', 'smoke-boss', 'reset-world', 'rollback'])
     command = parser.parse_args().command
     with operation_lock():
         if command == 'setup':
@@ -450,6 +478,8 @@ def main():
             launch()
         elif command == 'smoke':
             smoke()
+        elif command == 'smoke-boss':
+            smoke('sovereign')
         elif command == 'reset-world':
             reset_world()
         elif command == 'rollback':

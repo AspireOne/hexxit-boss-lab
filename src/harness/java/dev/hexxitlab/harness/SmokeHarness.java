@@ -50,6 +50,7 @@ public final class SmokeHarness {
   private int serverTicks;
   private EntityLiving target;
   private File gameDirectory;
+  private SovereignScenario sovereign;
 
   @Mod.PostInit
   public void initialize(FMLPostInitializationEvent event) throws IOException {
@@ -74,6 +75,14 @@ public final class SmokeHarness {
             || "reload".equals(request.getProperty("phase")))) {
       throw new IllegalArgumentException("Invalid smoke request");
     }
+    String scenario = request.getProperty("scenario", "target");
+    if ("sovereign".equals(scenario)) {
+      sovereign =
+          new SovereignScenario(
+              request.getProperty("run"), request.getProperty("phase"), gameDirectory);
+    } else if (!"target".equals(scenario)) {
+      throw new IllegalArgumentException("Unknown smoke scenario");
+    }
     TickRegistry.registerTickHandler(new ClientTicks(), Side.CLIENT);
     TickRegistry.registerTickHandler(new ServerTicks(), Side.SERVER);
     BossLab.LOGGER.info("Smoke harness enabled: " + request.getProperty("phase"));
@@ -90,6 +99,12 @@ public final class SmokeHarness {
     if (serverTicks > 2400) {
       throw new IllegalStateException(
           "Timed out waiting for client entity synchronization at step " + step);
+    }
+    if (sovereign != null) {
+      if (sovereign.tick(server, player)) {
+        complete(server);
+      }
+      return;
     }
     World world = player.worldObj;
     if (step == 0) {
@@ -204,6 +219,10 @@ public final class SmokeHarness {
       Minecraft minecraft = Minecraft.getMinecraft();
       try {
         if (types.contains(TickType.RENDER)) {
+          if (sovereign != null) {
+            sovereign.render(minecraft);
+            return;
+          }
           if (step == 2 && observedHealth == 33 && !imageSaved && minecraft.theWorld != null) {
             Entity entity = minecraft.theWorld.getEntityByID(targetId);
             if (entity != null && minecraft.thePlayer != null) {
@@ -239,6 +258,9 @@ public final class SmokeHarness {
           if (entity instanceof LabTarget) {
             observedHealth = ((EntityLiving) entity).getHealth();
           }
+        }
+        if (sovereign != null) {
+          sovereign.observe(minecraft);
         }
         if (finished && !resultWritten) {
           MinecraftServer server = minecraft.getIntegratedServer();

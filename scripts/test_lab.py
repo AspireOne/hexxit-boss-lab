@@ -17,6 +17,43 @@ class LabWorkflowTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 
+    def test_combat_restore_recovers_exact_save_and_retains_exercised_world(self):
+        target = self.root / 'instance'
+        world = target / 'minecraft/saves/Test'
+        world.mkdir(parents=True)
+        (world / 'level.dat').write_bytes(b'combat state')
+        run = self.root / 'run'
+        snapshot = run / 'world-before'
+        snapshot.mkdir(parents=True)
+        (snapshot / 'level.dat').write_bytes(b'original inventory and world')
+        with patch.object(lab, 'TARGET', target):
+            lab.restore_smoke_world(snapshot, world, run)
+        self.assertEqual(b'original inventory and world', (world / 'level.dat').read_bytes())
+        self.assertEqual(b'combat state', (run / 'world-after/level.dat').read_bytes())
+        self.assertEqual(lab.tree_hashes(snapshot), lab.tree_hashes(world))
+
+    def test_combat_restore_copy_failure_preserves_current_save(self):
+        target = self.root / 'instance'
+        world = target / 'minecraft/saves/Test'
+        world.mkdir(parents=True)
+        (world / 'level.dat').write_bytes(b'current save')
+        run = self.root / 'run'
+        snapshot = run / 'world-before'
+        snapshot.mkdir(parents=True)
+        with patch.object(lab, 'TARGET', target), \
+                patch.object(lab.shutil, 'copytree', side_effect=OSError('disk full')), \
+                self.assertRaisesRegex(OSError, 'disk full'):
+            lab.restore_smoke_world(snapshot, world, run)
+        self.assertEqual(b'current save', (world / 'level.dat').read_bytes())
+        self.assertFalse((run / 'world-after').exists())
+
+    def test_combat_restore_rejects_unmanaged_world(self):
+        run = self.root / 'run'
+        snapshot = run / 'world-before'
+        snapshot.mkdir(parents=True)
+        with patch.object(lab, 'TARGET', self.root / 'instance'), self.assertRaisesRegex(ValueError, 'escapes'):
+            lab.restore_smoke_world(snapshot, self.root / 'original-save', run)
+
     def test_process_probe_fails_closed_in_real_powershell(self):
         cases = (
             ("Write-Error 'CIM unavailable'", 10),
