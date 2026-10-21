@@ -45,3 +45,5 @@ If Minecraft cannot exit, the runner refuses to replace the live save. After an 
 Minecraft 1.5.2's ray tracer mutates its input vector. Production code copies vectors at that boundary so cover checks cannot corrupt locked warnings or collision geometry. Combat remains server-owned, with tests against the actual pack rather than a simulated Minecraft API.
 
 Balance remains subject to the first human fight. Automated damage measurements establish equipment compatibility, not how difficult or enjoyable the fight feels.
+
+See the [verification record](verification.md) for accepted scenarios and observed equipment damage.
