@@ -73,6 +73,7 @@ public final class SovereignScenario {
   private double playerY;
   private int orbitCase;
   private int orbitTick;
+  private boolean orbitImpact;
   private Vec3 orbitBossStart;
   private static final String[] ORBIT_CASES = {
     "clockwise-close-circle", "counterclockwise-wide-circle", "circle-breakout", "vertical-circle"
@@ -291,7 +292,7 @@ public final class SovereignScenario {
         boss.setEntityHealth(2401);
         require(boss.getPhase() == 1, "Above 2400 is phase one");
         boss.setEntityHealth(2400);
-        require(boss.getPhase() == 2, "21200 starts phase two");
+        require(boss.getPhase() == 2, "2400 starts phase two");
         boss.setEntityHealth(1201);
         require(boss.getPhase() == 2, "Above 1200 is phase two");
         boss.setEntityHealth(1200);
@@ -318,7 +319,7 @@ public final class SovereignScenario {
             "Boss must reposition against close circling");
         warned = true;
       }
-      if (warned && action == Sovereign.Action.RECOVER) {
+      if (warned && !orbitImpact && action == Sovereign.Action.RECOVER) {
         require(
             hits == (orbitCase == 2 ? 0 : 1),
             "Circle pressure or breakout failed: " + ORBIT_CASES[orbitCase]);
@@ -326,6 +327,17 @@ public final class SovereignScenario {
           require(rawDamage == 64, "Crown Break must threaten a circling player");
         }
         BossLab.LOGGER.info("Sovereign combat PASS: " + ORBIT_CASES[orbitCase]);
+        orbitImpact = true;
+      }
+      if (orbitImpact
+          && (orbitCase != 0
+              || action != Sovereign.Action.RECOVER && action != Sovereign.Action.HUNT)) {
+        if (orbitCase == 0) {
+          require(
+              action != Sovereign.Action.BLAST,
+              "Continued circling must not cause consecutive blasts");
+          BossLab.LOGGER.info("Sovereign combat PASS: no-consecutive-blasts");
+        }
         if (++orbitCase < ORBIT_CASES.length) {
           startOrbit(world);
         } else {
@@ -451,6 +463,7 @@ public final class SovereignScenario {
     orbitBossStart = Vec3.createVectorHelper(boss.posX, boss.posY, boss.posZ);
     ticks = hits = rawDamage = orbitTick = 0;
     warned = false;
+    orbitImpact = false;
     protect = true;
     player.clearActivePotions();
     player.hurtResistantTime = 0;
@@ -461,9 +474,10 @@ public final class SovereignScenario {
   private void moveOrbit() {
     double radius = orbitCase == 1 ? 14 : orbitCase == 3 ? 10 : 6;
     double angle = ++orbitTick * (orbitCase == 1 ? -0.05 : 0.1);
-    playerX = x + 8 + Math.cos(angle) * radius;
-    playerY = y + (orbitCase == 3 ? Math.sin(angle) * radius : 0);
-    playerZ = z + (orbitCase == 3 ? 0 : Math.sin(angle) * radius);
+    // Follow the moving boss: circling a fixed world point can accidentally leave its blast.
+    playerX = boss.posX + Math.cos(angle) * radius;
+    playerY = boss.posY + (orbitCase == 3 ? Math.sin(angle) * radius : 0);
+    playerZ = boss.posZ + (orbitCase == 3 ? 0 : Math.sin(angle) * radius);
     if (orbitCase == 2 && warned) {
       // Break out radially after the warning instead of continuing the same safe-looking orbit.
       double dx = playerX - boss.posX;
@@ -471,6 +485,15 @@ public final class SovereignScenario {
       double length = Math.sqrt(dx * dx + dz * dz);
       playerX = boss.posX + dx / length * 26;
       playerZ = boss.posZ + dz / length * 26;
+    }
+    if (warned && boss.getAction() == Sovereign.Action.BLAST && orbitCase != 2) {
+      require(
+          Vec3.createVectorHelper(playerX, playerY + 0.9, playerZ)
+                  .distanceTo(
+                      Vec3.createVectorHelper(
+                          boss.posX, boss.posY + Sovereign.CENTER_HEIGHT, boss.posZ))
+              < 18,
+          "Circling probe must stay within the blast instead of accidentally escaping");
     }
   }
 
