@@ -315,7 +315,7 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
     Vec3 end = start.addVector(dx / length * range, dy / length * range, dz / length * range);
     // Lance stops at cover; rush is an ethereal movement but cannot hit through cover.
     if (attack == Action.LANCE) {
-      MovingObjectPosition block = worldObj.rayTraceBlocks(start, end);
+      MovingObjectPosition block = trace(start, end);
       if (block != null) {
         end = block.hitVec;
       }
@@ -342,12 +342,19 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
   }
 
   private boolean unobstructed(Vec3 start, Vec3 end) {
-    return worldObj.rayTraceBlocks(start, end) == null;
+    return trace(start, end) == null;
+  }
+
+  private MovingObjectPosition trace(Vec3 start, Vec3 end) {
+    // Minecraft 1.5.2's DDA mutates its input vector. Never hand it locked attack geometry.
+    return worldObj.rayTraceBlocks(
+        Vec3.createVectorHelper(start.xCoord, start.yCoord, start.zCoord),
+        Vec3.createVectorHelper(end.xCoord, end.yCoord, end.zCoord));
   }
 
   private void hitLine(Vec3 start, Vec3 end, double radius, int damage, boolean magic) {
     if (magic) {
-      MovingObjectPosition block = worldObj.rayTraceBlocks(start, end);
+      MovingObjectPosition block = trace(start, end);
       if (block != null) {
         end = block.hitVec;
       }
