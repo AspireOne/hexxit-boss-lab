@@ -97,6 +97,33 @@ tasks.register('buildIdentity') {
 sourceSets.main.resources.srcDir(layout.buildDirectory.dir('generated/resources'))
 processResources.dependsOn('buildIdentity')
 
+// Consumers use these task outputs rather than reconstructing versioned filenames.
+['release': 'remapJarForRelease', 'harness': 'harnessJar'].each { kind, archiveTask ->
+    tasks.register("${kind}ArtifactManifest") {
+        dependsOn archiveTask, 'buildIdentity'
+        def destination = layout.buildDirectory.file("artifacts/${kind}.json")
+        outputs.file(destination)
+        outputs.upToDateWhen { false }
+        doLast {
+            def artifact = tasks.named(archiveTask).get().archiveFile.get().asFile
+            def identity = new Properties()
+            layout.buildDirectory.file('generated/resources/hexxitlab-build.properties').get().asFile.withInputStream {
+                identity.load(it)
+            }
+            def manifest = [
+                path: relativePath(artifact),
+                sha256: java.security.MessageDigest.getInstance('SHA-256').digest(artifact.bytes).encodeHex().toString(),
+                version: identity.getProperty('version'),
+                revision: identity.getProperty('revision'),
+                dirty: identity.getProperty('dirty')
+            ]
+            destination.get().asFile.parentFile.mkdirs()
+            destination.get().asFile.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(manifest)) + '\n'
+        }
+    }
+}
+tasks.named('build') { dependsOn 'releaseArtifactManifest' }
+
 tasks.register('verifyBytecode') {
     dependsOn tasks.named('classes')
     doLast {

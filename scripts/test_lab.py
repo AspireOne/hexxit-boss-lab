@@ -1,9 +1,11 @@
 import gzip
 from pathlib import Path
 import struct
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+import zipfile
 
 import lab
 from world_name import rename_world
@@ -14,6 +16,52 @@ class LabWorkflowTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+
+    def test_process_probe_fails_closed_in_real_powershell(self):
+        cases = (
+            ("Write-Error 'CIM unavailable'", 10),
+            ("[pscustomobject]@{ Name='javaw.exe'; CommandLine=$null }", 10),
+            ("[pscustomobject]@{ Name='javaw.exe'; CommandLine='org.prismlauncher.EntryPoint' }", 9),
+            ("[pscustomobject]@{ Name='java.exe'; CommandLine='org.gradle.launcher.daemon' }", 0),
+            ('', 0),
+        )
+        for body, expected in cases:
+            with self.subTest(body=body):
+                script = 'function Get-CimInstance { [CmdletBinding()] param($ClassName) ' + body + ' }; ' + lab.PROCESS_CHECK
+                result = subprocess.run(['powershell', '-NoProfile', '-Command', script], capture_output=True)
+                self.assertEqual(expected, result.returncode)
+
+    def test_failed_process_inspection_blocks_installation(self):
+        failure = subprocess.CompletedProcess([], 10, b'', b'')
+        with patch.object(lab, 'validate_lab'), patch.object(lab.subprocess, 'run', return_value=failure), \
+                patch.object(lab, 'checked_artifact') as build, self.assertRaisesRegex(RuntimeError, 'inspection failed'):
+            lab.apply()
+        build.assert_not_called()
+
+    def create_release(self, version):
+        artifact = self.root / 'build/libs' / ('hexxit-boss-lab-' + version + '.jar')
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        identity = {'version': version, 'revision': 'abc123', 'dirty': 'false'}
+        with zipfile.ZipFile(artifact, 'w') as jar:
+            jar.writestr('dev/hexxitlab/BossLab.class', b'entry-point')
+            jar.writestr('hexxitlab-build.properties', ''.join(key + '=' + value + '\n' for key, value in identity.items()))
+        manifest = dict(identity, path=artifact.relative_to(self.root).as_posix(), sha256=lab.digest(artifact))
+        return artifact, manifest
+
+    def test_current_gradle_output_is_selected_even_when_old_version_remains(self):
+        self.create_release('0.1.0')
+        current, manifest = self.create_release('0.2.0')
+        lab.write_json(self.root / 'build/artifacts/release.json', manifest)
+        with patch.object(lab, 'ROOT', self.root), patch.object(lab, 'gradle'):
+            self.assertEqual(current, lab.checked_artifact())
+
+    def test_artifact_with_wrong_checksum_or_identity_is_rejected(self):
+        _, manifest = self.create_release('0.2.0')
+        for field, incorrect in (('sha256', '0' * 64), ('version', '0.1.0'), ('revision', 'old-revision')):
+            with self.subTest(field=field):
+                lab.write_json(self.root / 'build/artifacts/release.json', dict(manifest, **{field: incorrect}))
+                with patch.object(lab, 'ROOT', self.root), self.assertRaises(RuntimeError):
+                    lab.artifact_from_manifest('release')
 
     def test_rejects_destination_outside_managed_root(self):
         with self.assertRaises(ValueError):
@@ -64,6 +112,95 @@ class LabWorkflowTests(unittest.TestCase):
         with patch.object(lab.shutil, 'copy2', side_effect=fail_incoming), self.assertRaises(OSError):
             lab.install_artifact(artifact, mods, history)
         self.assertEqual(b'known-good', (mods / lab.MOD_FILE).read_bytes())
+
+    def test_failed_metadata_write_restores_previous_deployment(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                artifact, mods, history = root / 'build.jar', root / 'mods', root / 'history'
+                if existing:
+                    artifact.write_bytes(b'old')
+                    lab.install_artifact(artifact, mods, history)
+                previous_record = lab.read_deployment(history / 'deployment.json')
+                artifact.write_bytes(b'new')
+                real_write = lab.write_json
+
+                def fail_metadata(path, value):
+                    if path.name == 'deployment.json':
+                        raise OSError('Metadata disk full')
+                    real_write(path, value)
+
+                with patch.object(lab, 'write_json', side_effect=fail_metadata), self.assertRaises(OSError):
+                    lab.install_artifact(artifact, mods, history)
+                self.assertEqual(previous_record, lab.verified_deployment(mods, history))
+                self.assertFalse((history / 'deployment-pending.json').exists())
+                if existing:
+                    self.assertEqual(b'old', (mods / lab.MOD_FILE).read_bytes())
+                else:
+                    self.assertFalse((mods / lab.MOD_FILE).exists())
+
+    def test_interrupted_deployment_recovers_before_retry_or_rollback(self):
+        for replaced, committed in ((False, False), (True, False), (True, True)):
+            with self.subTest(replaced=replaced, committed=committed), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                artifact, mods, history = root / 'build.jar', root / 'mods', root / 'history'
+                artifact.write_bytes(b'old')
+                old = lab.install_artifact(artifact, mods, history)
+                artifact.write_bytes(b'new')
+                new = lab.digest(artifact)
+                (history / (new + '.jar')).write_bytes(b'new')
+                pending = {'current': new, 'previous': old}
+                lab.write_json(history / 'deployment-pending.json', pending)
+                if replaced:
+                    (mods / lab.MOD_FILE).write_bytes(b'new')
+                if committed:
+                    lab.write_json(history / 'deployment.json', pending)
+                record = lab.verified_deployment(mods, history)
+                self.assertEqual(b'new' if committed else b'old', (mods / lab.MOD_FILE).read_bytes())
+                self.assertEqual(new if committed else old, record['current'])
+                self.assertFalse((history / 'deployment-pending.json').exists())
+
+    def test_incomplete_recovery_can_be_retried_after_storage_failure(self):
+        artifact, mods, history = self.root / 'build.jar', self.root / 'mods', self.root / 'history'
+        artifact.write_bytes(b'old')
+        old = lab.install_artifact(artifact, mods, history)
+        artifact.write_bytes(b'new')
+        real_write, real_copy = lab.write_json, lab.shutil.copy2
+
+        def fail_metadata(path, value):
+            if path.name == 'deployment.json':
+                raise OSError('Metadata disk full')
+            real_write(path, value)
+
+        def fail_recovery(source, destination):
+            if source == history / (old + '.jar'):
+                raise OSError('Recovery disk full')
+            return real_copy(source, destination)
+
+        with patch.object(lab, 'write_json', side_effect=fail_metadata), \
+                patch.object(lab.shutil, 'copy2', side_effect=fail_recovery), \
+                self.assertRaisesRegex(RuntimeError, 'recovery incomplete'):
+            lab.install_artifact(artifact, mods, history)
+        self.assertTrue((history / 'deployment-pending.json').exists())
+        self.assertEqual(old, lab.verified_deployment(mods, history)['current'])
+        self.assertEqual(b'old', (mods / lab.MOD_FILE).read_bytes())
+        self.assertFalse((history / 'deployment-pending.json').exists())
+
+    def test_rollback_refuses_an_unexpected_installed_jar(self):
+        artifact, target, state = self.root / 'build.jar', self.root / 'target', self.root / 'state'
+        mods, history = target / 'minecraft/mods', state / 'artifacts'
+        artifact.write_bytes(b'old')
+        lab.install_artifact(artifact, mods, history)
+        artifact.write_bytes(b'new')
+        lab.install_artifact(artifact, mods, history)
+        (mods / lab.MOD_FILE).write_bytes(b'unexpected')
+        before = lab.read_json(history / 'deployment.json')
+        with patch.object(lab, 'TARGET', target), patch.object(lab, 'STATE', state), \
+                patch.object(lab, 'validate_lab'), patch.object(lab, 'ensure_stopped'), \
+                self.assertRaisesRegex(RuntimeError, 'differs from deployment metadata'):
+            lab.rollback()
+        self.assertEqual(b'unexpected', (mods / lab.MOD_FILE).read_bytes())
+        self.assertEqual(before, lab.read_json(history / 'deployment.json'))
 
     def test_failed_build_never_installs(self):
         with patch.object(lab, 'validate_lab'), patch.object(lab, 'ensure_stopped'), \

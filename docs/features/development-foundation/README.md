@@ -15,7 +15,7 @@ Run commands from the repository root in PowerShell:
 | `.\lab.ps1 reset-world` | Snapshot current lab progress and restore the original lab baseline. |
 | `.\lab.ps1 rollback` | Restore the previous deployed mod artifact. This does not restore the world. |
 
-Close Minecraft before setup, deployment, rollback, or reset. Process checks conservatively refuse these operations while any recognized Minecraft Java process is running. Gradle's Java process is allowed. Commands serialize local operations through `.lab/operation.lock`.
+Close Minecraft before setup, deployment, rollback, or reset. Process checks refuse these operations when Minecraft is running, inspection fails, or a Java process's command line cannot be read. Gradle's Java process is allowed. Commands serialize local operations through `.lab/operation.lock`.
 
 The PowerShell entry point delegates filesystem and process orchestration to Python's standard library. Gradle owns compilation and build checks. There are no Python package dependencies.
 
@@ -36,6 +36,8 @@ The separate `src/harness` source set contains the runtime test mod. Its JAR is 
 
 Each release embeds `hexxitlab-build.properties` with the project version, full Git revision, and dirty-worktree flag. Build artifacts use stable entry ordering and timestamps. Uncommitted builds remain usable and are explicitly identified as dirty.
 
+Gradle writes release and harness manifests under `build/artifacts/`. The workflow takes artifact paths from these outputs, verifies their SHA-256, and checks the release's embedded identity. Old versioned JARs left in `build/libs/` are not selected by filename.
+
 ## Instance and save boundaries
 
 Setup copies **Hexxit 1.0.11 OptiFine** to **Hexxit Boss Lab** under Prism's instances directory. It copies its mods, coremods, configuration, resources, jar patches, and Java settings. Writable game files are independent copies. Screenshots, logs, and unrelated saves are excluded.
@@ -52,6 +54,8 @@ Local state stays outside Git:
 - `.lab/runs/`: runtime results and mod/configuration fingerprints.
 
 Reset restores the whole save, including its player inventory. It never refreshes the baseline from the live source. Deployment and world reset are separate operations.
+
+Deployment records a pending replacement before changing the installed JAR. If the metadata update fails, it restores the previous JAR; an interrupted operation is recovered on the next `apply` or `rollback`. If storage prevents recovery, resolve that failure and retry with Minecraft stopped. Preserve `deployment-pending.json` until recovery finishes. An installed JAR that unexpectedly differs from recorded metadata is rejected rather than overwritten.
 
 If setup or reset is interrupted, inspect its staging directory rather than deleting it blindly. If `.lab/operation.lock` remains after a terminated command, inspect its recorded process ID, confirm that process has ended, then remove only that lock. Never remove an active operation's lock.
 

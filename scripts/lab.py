@@ -25,6 +25,15 @@ WORLD = 'Kratom - Boss Lab'
 MARKER = '.hexxit-boss-lab.json'
 MOD_FILE = 'hexxit-boss-lab.jar'
 HARNESS_FILE = 'hexxit-boss-lab-harness.jar'
+PROCESS_CHECK = """
+$ErrorActionPreference = 'Stop'
+try {
+    $java = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.Name -in @('java.exe','javaw.exe') })
+    if (@($java | Where-Object { [string]::IsNullOrWhiteSpace($_.CommandLine) }).Count -gt 0) { exit 10 }
+    if (@($java | Where-Object { $_.CommandLine -match 'org.prismlauncher|org.multimc|net.minecraft|net.fabricmc|launchwrapper' }).Count -gt 0) { exit 9 }
+    exit 0
+} catch { exit 10 }
+"""
 
 
 def digest(path):
@@ -67,10 +76,11 @@ def validate_lab(target=TARGET, state=STATE):
 
 def ensure_stopped():
     # Do not print command lines: launch arguments may contain account credentials.
-    script = "$p = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('java.exe','javaw.exe') -and $_.CommandLine -match 'org.prismlauncher|org.multimc|net.minecraft|net.fabricmc|launchwrapper' }); if ($p.Count -gt 0) { exit 9 }"
-    result = subprocess.run(['powershell', '-NoProfile', '-Command', script], capture_output=True)
+    result = subprocess.run(['powershell', '-NoProfile', '-Command', PROCESS_CHECK], capture_output=True)
+    if result.returncode == 9:
+        raise RuntimeError('Close Minecraft before changing lab files.')
     if result.returncode != 0:
-        raise RuntimeError('Close Minecraft before changing lab files (or process inspection failed).')
+        raise RuntimeError('Process inspection failed; refusing to change lab files.')
 
 
 def gradle(*tasks):
@@ -162,15 +172,92 @@ def fingerprint():
             for name in ('mods', 'coremods', 'config')}
 
 
+def artifact_from_manifest(kind):
+    manifest = read_json(ROOT / 'build/artifacts' / (kind + '.json'))
+    artifact = ROOT / manifest['path']
+    require_child(artifact, ROOT / 'build/libs')
+    if digest(artifact) != manifest['sha256']:
+        raise RuntimeError('Built artifact checksum differs from Gradle manifest')
+    with zipfile.ZipFile(artifact) as jar:
+        if kind == 'release':
+            identity = dict(line.split('=', 1) for line in jar.read('hexxitlab-build.properties').decode('utf-8').splitlines() if '=' in line)
+            if any(identity.get(key) != manifest[key] for key in ('version', 'revision', 'dirty')):
+                raise RuntimeError('Built artifact identity differs from Gradle manifest')
+            if any(name.startswith('dev/hexxitlab/harness/') for name in jar.namelist()):
+                raise RuntimeError('Development harness leaked into the release JAR')
+            if 'dev/hexxitlab/BossLab.class' not in jar.namelist():
+                raise RuntimeError('Release artifact lacks the mod entry point')
+        elif 'dev/hexxitlab/harness/SmokeHarness.class' not in jar.namelist():
+            raise RuntimeError('Harness artifact lacks its entry point')
+    return artifact
+
+
 def checked_artifact():
     gradle('build')
-    artifact = ROOT / 'build/libs/hexxit-boss-lab-0.1.0.jar'
-    with zipfile.ZipFile(artifact) as jar:
-        if any(name.startswith('dev/hexxitlab/harness/') for name in jar.namelist()):
-            raise RuntimeError('Development harness leaked into the release JAR')
-        if 'dev/hexxitlab/BossLab.class' not in jar.namelist():
-            raise RuntimeError('Release artifact lacks the mod entry point')
+    return artifact_from_manifest('release')
+
+
+def read_deployment(path):
+    if not path.exists():
+        return None
+    record = read_json(path)
+    for key in ('current', 'previous'):
+        value = record[key]
+        if key == 'previous' and value is None:
+            continue
+        if not isinstance(value, str) or len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
+            raise RuntimeError('Invalid deployment checksum in ' + str(path))
+    return record
+
+
+def retained_artifact(history, checksum):
+    artifact = history / (checksum + '.jar')
+    require_child(artifact, history)
+    if digest(artifact) != checksum:
+        raise RuntimeError('Retained artifact checksum mismatch')
     return artifact
+
+
+def recover_deployment(mods, history):
+    """Undo an interrupted replacement unless its metadata was already committed."""
+    pending_path = history / 'deployment-pending.json'
+    pending = read_deployment(pending_path)
+    if pending is None:
+        return
+    recorded = read_deployment(history / 'deployment.json')
+    destination = mods / MOD_FILE
+    temporary = mods / (MOD_FILE + '.incoming')
+    require_child(destination, mods)
+    require_child(temporary, mods)
+    actual = digest(destination) if destination.exists() else None
+    if recorded == pending:
+        if actual != pending['current']:
+            raise RuntimeError('Committed deployment does not match the installed JAR')
+    else:
+        previous = recorded['current'] if recorded else None
+        if previous != pending['previous'] or actual not in (previous, pending['current']):
+            raise RuntimeError('Interrupted deployment has unexpected state; refusing recovery')
+        if actual != previous:
+            if previous is None:
+                destination.unlink()
+            else:
+                shutil.copy2(retained_artifact(history, previous), temporary)
+                if digest(temporary) != previous:
+                    raise RuntimeError('Recovery copy checksum mismatch')
+                temporary.replace(destination)
+    temporary.unlink(missing_ok=True)
+    pending_path.unlink()
+
+
+def verified_deployment(mods, history):
+    recover_deployment(mods, history)
+    record = read_deployment(history / 'deployment.json')
+    destination = mods / MOD_FILE
+    require_child(destination, mods)
+    actual = digest(destination) if destination.exists() else None
+    if actual != (record['current'] if record else None):
+        raise RuntimeError('Installed JAR differs from deployment metadata; refusing changes')
+    return record
 
 
 def install_artifact(artifact, mods, history):
@@ -179,23 +266,35 @@ def install_artifact(artifact, mods, history):
     history.mkdir(parents=True, exist_ok=True)
     destination = mods / MOD_FILE
     require_child(destination, mods)
+    temporary = mods / (MOD_FILE + '.incoming')
+    require_child(temporary, mods)
+    recorded = verified_deployment(mods, history)
     incoming_hash = digest(artifact)
     retained = history / (incoming_hash + '.jar')
     if not retained.exists():
         shutil.copy2(artifact, retained)
     if digest(retained) != incoming_hash:
         raise RuntimeError('Retained artifact checksum mismatch')
-    previous = digest(destination) if destination.exists() else None
+    previous = recorded['current'] if recorded else None
     if previous == incoming_hash:
         return incoming_hash
     if previous:
-        shutil.copy2(destination, history / (previous + '.jar'))
-    temporary = mods / (MOD_FILE + '.incoming')
+        retained_artifact(history, previous)
     shutil.copy2(artifact, temporary)
     if digest(temporary) != incoming_hash:
         raise RuntimeError('Copy verification failed; installed artifact preserved')
-    temporary.replace(destination)
-    write_json(history / 'deployment.json', {'current': incoming_hash, 'previous': previous})
+    deployment = {'current': incoming_hash, 'previous': previous}
+    write_json(history / 'deployment-pending.json', deployment)
+    try:
+        temporary.replace(destination)
+        write_json(history / 'deployment.json', deployment)
+        (history / 'deployment-pending.json').unlink()
+    except Exception:
+        try:
+            recover_deployment(mods, history)
+        except Exception as recovery_error:
+            raise RuntimeError('Deployment recovery incomplete; retry apply/rollback when storage is available. The pending record has been retained.') from recovery_error
+        raise
     return incoming_hash
 
 
@@ -216,12 +315,11 @@ def rollback():
     validate_lab()
     ensure_stopped()
     history = STATE / 'artifacts'
-    previous = read_json(history / 'deployment.json')['previous']
-    if not previous or len(previous) != 64 or any(c not in '0123456789abcdef' for c in previous):
+    record = verified_deployment(TARGET / 'minecraft/mods', history)
+    previous = record['previous'] if record else None
+    if previous is None:
         raise RuntimeError('No valid previous deployment')
-    artifact = history / (previous + '.jar')
-    if digest(artifact) != previous:
-        raise RuntimeError('Previous artifact checksum mismatch')
+    artifact = retained_artifact(history, previous)
     install_artifact(artifact, TARGET / 'minecraft/mods', history)
     print('Restored previous build: ' + previous)
 
@@ -254,8 +352,8 @@ def launch():
 
 def smoke():
     apply()
-    gradle('harnessJar')
-    harness = ROOT / 'build/libs/hexxit-boss-lab-0.1.0-harness.jar'
+    gradle('harnessArtifactManifest')
+    harness = artifact_from_manifest('harness')
     shutil.copy2(harness, TARGET / 'minecraft/mods' / HARNESS_FILE)
     run = STATE / 'runs' / (time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:8])
     run.mkdir(parents=True)
