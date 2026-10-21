@@ -78,10 +78,19 @@ def gradle(*tasks):
 
 
 def tree_hashes(directory):
+    require_child(directory, directory.parent)
     result = {}
-    for path in sorted(directory.rglob('*')):
-        require_child(path, directory)
-        if path.is_file():
+    # Walk validated directories once instead of resolving every ancestor of every file.
+    # Never follow links, including Windows junctions.
+    for current, directories, files in os.walk(directory, followlinks=False):
+        for name in directories:
+            path = Path(current) / name
+            if path.is_symlink() or path.is_junction():
+                raise ValueError('Linked paths are not fingerprinted: ' + str(path))
+        for name in sorted(files):
+            path = Path(current) / name
+            if path.is_symlink():
+                raise ValueError('Linked files are not fingerprinted: ' + str(path))
             result[path.relative_to(directory).as_posix()] = digest(path)
     return result
 
@@ -199,6 +208,7 @@ def apply():
     harness = TARGET / 'minecraft/mods' / HARNESS_FILE
     require_child(harness, TARGET)
     harness.unlink(missing_ok=True)
+    (TARGET / 'minecraft/bosslab-smoke.properties').unlink(missing_ok=True)
     print('Installed verified build: ' + result)
 
 
@@ -250,37 +260,63 @@ def smoke():
     run = STATE / 'runs' / (time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:8])
     run.mkdir(parents=True)
     write_json(run / 'environment.json', fingerprint())
-    # Two real game launches exercise the world persistence boundary.
-    for phase in ('create', 'reload'):
-        ensure_stopped()
-        request = TARGET / 'minecraft/bosslab-smoke.properties'
-        request.write_text('phase=' + phase + '\nworld=' + WORLD + '\nrun=' + run.name + '\n', encoding='ascii')
-        result = TARGET / 'minecraft' / ('bosslab-' + phase + '-result.properties')
-        result.unlink(missing_ok=True)
-        launch()
-        deadline = time.monotonic() + 240
-        while not result.exists() and time.monotonic() < deadline:
-            time.sleep(1)
-        if not result.exists():
-            raise RuntimeError('Smoke timed out; inspect Minecraft and logs. No success result was produced.')
-        shutil.copy2(result, run / result.name)
-        text = result.read_text(encoding='ascii')
-        if 'status=PASS' not in text or ('run=' + run.name) not in text:
-            raise RuntimeError('Runtime smoke failed: ' + text)
-        # The harness saves and exits; allow that process to finish before the next launch.
-        while True:
+    succeeded = False
+    try:
+        # Two real game launches exercise the world persistence boundary.
+        for phase in ('create', 'reload'):
+            ensure_stopped()
+            request = TARGET / 'minecraft/bosslab-smoke.properties'
+            request.write_text('phase=' + phase + '\nworld=' + WORLD + '\nrun=' + run.name + '\n', encoding='ascii')
+            result = TARGET / 'minecraft' / ('bosslab-' + phase + '-result.properties')
+            result.unlink(missing_ok=True)
+            started = time.time()
+            launch()
+            print('Waiting for runtime phase: ' + phase, flush=True)
+            deadline = time.monotonic() + 240
             try:
-                ensure_stopped()
-                break
-            except RuntimeError:
-                if time.monotonic() > deadline:
-                    raise
-                time.sleep(1)
-        for log in (TARGET / 'minecraft').glob('ForgeModLoader-client-0.log'):
-            shutil.copy2(log, run / (phase + '-' + log.name))
-    (TARGET / 'minecraft/bosslab-smoke.properties').unlink(missing_ok=True)
-    (TARGET / 'minecraft/mods' / HARNESS_FILE).unlink()
-    print('Runtime smoke passed. Evidence: ' + str(run))
+                while not result.exists() and time.monotonic() < deadline:
+                    crashes = TARGET / 'minecraft/crash-reports'
+                    if any(p.stat().st_mtime >= started for p in crashes.glob('crash-*.txt')):
+                        raise RuntimeError('Minecraft crashed during ' + phase + '; inspect ' + str(run))
+                    time.sleep(1)
+                if not result.exists():
+                    raise RuntimeError('Smoke timed out; inspect Minecraft and ' + str(run))
+                shutil.copy2(result, run / result.name)
+                text = result.read_text(encoding='ascii')
+                if 'status=PASS' not in text or ('run=' + run.name) not in text:
+                    raise RuntimeError('Runtime smoke failed: ' + text)
+                # The harness saves and exits before the next launch.
+                while True:
+                    try:
+                        ensure_stopped()
+                        break
+                    except RuntimeError:
+                        if time.monotonic() > deadline:
+                            raise
+                        time.sleep(1)
+                if any(p.stat().st_mtime >= started for p in crashes.glob('crash-*.txt')):
+                    raise RuntimeError('Minecraft crashed while saving/exiting ' + phase)
+            finally:
+                for log in (TARGET / 'minecraft').glob('ForgeModLoader-client-0.log'):
+                    shutil.copy2(log, run / (phase + '-' + log.name))
+                for report in (TARGET / 'minecraft/crash-reports').glob('crash-*.txt'):
+                    if report.stat().st_mtime >= started:
+                        shutil.copy2(report, run / report.name)
+                for screenshot in (TARGET / 'minecraft/bosslab-evidence/screenshots').glob('*.png'):
+                    if screenshot.stat().st_mtime >= started:
+                        shutil.copy2(screenshot, run / screenshot.name)
+        succeeded = True
+        print('Runtime smoke passed. Evidence: ' + str(run))
+    finally:
+        write_json(run / 'summary.json', {'passed': succeeded, 'run': run.name})
+        # Remove the request even on failure so a later manual launch never resumes a stale test.
+        (TARGET / 'minecraft/bosslab-smoke.properties').unlink(missing_ok=True)
+        try:
+            ensure_stopped()
+        except RuntimeError:
+            print('Close the failed lab game, then run apply to remove the test harness.', file=sys.stderr)
+        else:
+            (TARGET / 'minecraft/mods' / HARNESS_FILE).unlink(missing_ok=True)
 
 
 @contextlib.contextmanager

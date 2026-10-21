@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- Forge injects @SidedProxy after constructing the mod. It cannot be final. -->
+    <Match>
+        <Class name="dev.hexxitlab.BossLab"/>
+        <Field name="proxy"/>
+        <Bug pattern="MS_SHOULD_BE_FINAL"/>
+    </Match>
+    <!-- CommandBase orders commands by name; command instances retain identity equality. -->
+    <Match>
+        <Class name="dev.hexxitlab.LabCommand"/>
+        <Method name="compareTo"/>
+        <Bug pattern="EQ_COMPARETO_USE_OBJECT_EQUALS"/>
+    </Match>
+</FindBugsFilter>

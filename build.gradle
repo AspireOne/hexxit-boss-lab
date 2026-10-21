@@ -19,13 +19,39 @@ version = '0.1.0'
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(11)
 
+sourceSets {
+    harness {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+tasks.register('harnessDevJar', Jar) {
+    archiveClassifier = 'harness-dev'
+    from sourceSets.harness.output
+    // Include our entity hierarchy while remapping inherited Minecraft members.
+    from sourceSets.main.output
+}
+tasks.register('harnessRemappedJar', net.fabricmc.loom.task.ReobfJarTask) {
+    dependsOn 'harnessDevJar'
+    input = tasks.named('harnessDevJar').flatMap { it.archiveFile }
+    archiveClassifier = 'harness-all'
+}
+tasks.register('harnessJar', Jar) {
+    dependsOn 'harnessRemappedJar'
+    from({ zipTree(tasks.named('harnessRemappedJar').get().archiveFile.get().asFile) }) {
+        include 'dev/hexxitlab/harness/**'
+    }
+    archiveClassifier = 'harness'
+}
+tasks.named('check') { dependsOn 'harnessClasses' }
+
 repositories { mavenCentral() }
 
 dependencies {
     minecraft 'com.mojang:minecraft:1.5.2'
     forge 'net.minecraftforge:forge:1.5.2-7.8.1.737:universal@zip'
     mappings 'net.minecraftforge:forge:1.5.2-7.8.1.737:src@zip'
-    testImplementation 'junit:junit:4.13.2'
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -42,6 +68,7 @@ spotbugs {
     toolVersion = '4.8.6'
     effort = 'max'
     reportLevel = 'medium'
+    excludeFilter = file('config/spotbugs-exclude.xml')
 }
 tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
     reports { html.required = true; xml.required = true }
