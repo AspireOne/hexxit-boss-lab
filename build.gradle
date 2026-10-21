@@ -1,0 +1,90 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        maven { url 'https://maven.fabricmc.net' }
+        maven { url 'https://repo.sleeping.town' }
+    }
+    dependencies { classpath 'agency.highlysuspect:voldeloom:2.4' }
+}
+
+plugins {
+    id 'com.diffplug.spotless' version '6.25.0'
+    id 'com.github.spotbugs' version '5.2.5'
+}
+
+apply plugin: 'agency.highlysuspect.voldeloom'
+
+group = 'dev.hexxitlab'
+version = '0.1.0'
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(11)
+
+repositories { mavenCentral() }
+
+dependencies {
+    minecraft 'com.mojang:minecraft:1.5.2'
+    forge 'net.minecraftforge:forge:1.5.2-7.8.1.737:universal@zip'
+    mappings 'net.minecraftforge:forge:1.5.2-7.8.1.737:src@zip'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release.set(6)
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:all,-options', '-Werror']
+}
+
+spotless {
+    java { googleJavaFormat('1.17.0'); target 'src/**/*.java' }
+}
+
+spotbugs {
+    toolVersion = '4.8.6'
+    effort = 'max'
+    reportLevel = 'medium'
+}
+tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
+    reports { html.required = true; xml.required = true }
+}
+
+def gitValue = { List<String> args ->
+    def output = new ByteArrayOutputStream()
+    def result = exec {
+        commandLine(['git'] + args)
+        standardOutput = output
+        errorOutput = new ByteArrayOutputStream()
+        ignoreExitValue = true
+    }
+    result.exitValue == 0 ? output.toString('UTF-8').trim() : 'uncommitted'
+}
+
+tasks.register('buildIdentity') {
+    def destination = layout.buildDirectory.file('generated/resources/hexxitlab-build.properties')
+    outputs.file(destination)
+    outputs.upToDateWhen { false }
+    doLast {
+        destination.get().asFile.parentFile.mkdirs()
+        destination.get().asFile.text = "version=${project.version}\nrevision=${gitValue(['rev-parse', 'HEAD'])}\ndirty=${!gitValue(['status', '--porcelain']).isEmpty()}\n"
+    }
+}
+sourceSets.main.resources.srcDir(layout.buildDirectory.dir('generated/resources'))
+processResources.dependsOn('buildIdentity')
+
+tasks.register('verifyBytecode') {
+    dependsOn tasks.named('classes')
+    doLast {
+        fileTree(layout.buildDirectory.dir('classes/java/main')).matching { include '**/*.class' }.each { file ->
+            file.withDataInputStream { input ->
+                if (input.readInt() != (int) 0xCAFEBABE) throw new GradleException("Invalid class: ${file}")
+                input.readUnsignedShort()
+                if (input.readUnsignedShort() > 50) throw new GradleException("Java 6 bytecode required: ${file}")
+            }
+        }
+    }
+}
+check.dependsOn('verifyBytecode')
+
+tasks.withType(AbstractArchiveTask).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
