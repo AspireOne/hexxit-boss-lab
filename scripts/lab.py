@@ -428,11 +428,20 @@ def smoke(scenario='target'):
         succeeded = True
         print('Runtime smoke passed. Evidence: ' + str(run))
     finally:
-        write_json(run / 'summary.json', {'passed': succeeded, 'run': run.name})
+        write_json(run / 'summary.json', {'passed': False, 'assertions_passed': succeeded, 'run': run.name})
         # Remove the request even on failure so a later manual launch never resumes a stale test.
         (TARGET / 'minecraft/bosslab-smoke.properties').unlink(missing_ok=True)
         try:
-            ensure_stopped()
+            # A failed assertion can publish its result just before normal JVM exit.
+            exit_deadline = time.monotonic() + 30
+            while True:
+                try:
+                    ensure_stopped()
+                    break
+                except RuntimeError:
+                    if time.monotonic() >= exit_deadline:
+                        raise
+                    time.sleep(1)
         except RuntimeError:
             print('Close the failed lab game, then run apply to remove the test harness.', file=sys.stderr)
         else:
@@ -443,6 +452,7 @@ def smoke(scenario='target'):
                 restore_smoke_world(snapshot, world, run)
                 write_json(run / 'world-restored.json', {'restored': True})
                 print('Restored the exact pre-test lab save; exercised save retained in ' + str(run))
+            write_json(run / 'summary.json', {'passed': succeeded, 'run': run.name})
 
 
 @contextlib.contextmanager

@@ -156,6 +156,23 @@ public final class SovereignScenario {
           require(hits == 0 && boss.getActionTicks() >= 20, "Full warning must precede damage");
           warned = true;
           lockedAim = boss.getAim();
+          BossLab.LOGGER.info(
+              "Sovereign probe "
+                  + CASES[testCase]
+                  + ": boss="
+                  + boss.posX
+                  + ","
+                  + boss.posY
+                  + ","
+                  + boss.posZ
+                  + " aim="
+                  + lockedAim
+                  + " player="
+                  + player.posX
+                  + ","
+                  + player.posY
+                  + ","
+                  + player.posZ);
           rushStart = Vec3.createVectorHelper(boss.posX, boss.posY, boss.posZ);
           if (testCase == 1 || testCase == 4) {
             playerZ = z + 8;
@@ -178,6 +195,21 @@ public final class SovereignScenario {
         }
       }
       if (warned && action == Sovereign.Action.RECOVER) {
+        BossLab.LOGGER.info(
+            "Sovereign impact "
+                + CASES[testCase]
+                + ": player="
+                + player.posX
+                + ","
+                + player.posY
+                + ","
+                + player.posZ
+                + " health="
+                + player.getHealth()
+                + " invulnerable="
+                + player.capabilities.disableDamage
+                + " hits="
+                + hits);
         require(
             synchronizedWarning, "Client must receive the same attack geometry before execution");
         boolean shouldHit = testCase == 0 || testCase == 3 || testCase == 5 || testCase >= 8;
