@@ -16,16 +16,22 @@ import java.util.EnumSet;
 import java.util.Properties;
 import java.util.logging.Level;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiIngameMenu;
 import net.minecraft.client.gui.GuiMainMenu;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.passive.EntityPig;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.ScreenShotHelper;
 import net.minecraft.world.World;
 import net.minecraft.world.storage.ThreadedFileIOBase;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.EventPriority;
+import net.minecraftforge.event.ForgeSubscribe;
+import net.minecraftforge.event.entity.living.LivingAttackEvent;
 
 /** Explicitly enabled development mod; never included in the release artifact. */
 @Mod(
@@ -51,6 +57,8 @@ public final class SmokeHarness {
   private EntityLiving target;
   private File gameDirectory;
   private SovereignScenario sovereign;
+  private boolean clientOptionsSaved;
+  private boolean originalPauseOnLostFocus;
 
   @Mod.PostInit
   public void initialize(FMLPostInitializationEvent event) throws IOException {
@@ -85,7 +93,17 @@ public final class SmokeHarness {
     }
     TickRegistry.registerTickHandler(new ClientTicks(), Side.CLIENT);
     TickRegistry.registerTickHandler(new ServerTicks(), Side.SERVER);
+    MinecraftForge.EVENT_BUS.register(this);
     BossLab.LOGGER.info("Smoke harness enabled: " + request.getProperty("phase"));
+  }
+
+  @ForgeSubscribe(priority = EventPriority.HIGHEST)
+  public void protectPracticeProbe(LivingAttackEvent event) {
+    // The target scenario measures player damage, not incidental hazards in the copied house.
+    if (event.entityLiving == target && !(event.source.getEntity() instanceof EntityPlayer)) {
+      event.setCanceled(true);
+      BossLab.LOGGER.info("Practice smoke excluded incidental damage: " + event.source.damageType);
+    }
   }
 
   private void serverTick() {
@@ -166,8 +184,13 @@ public final class SmokeHarness {
         unrelated.setDead();
         complete(server);
       }
-    } else if (step == 2 && observedHealth == 33 && imageSaved) {
-      complete(server);
+    } else if (step == 2) {
+      require(
+          target.getHealth() == 33,
+          "Practice probe health changed unexpectedly after controlled damage");
+      if (observedHealth == 33 && imageSaved) {
+        complete(server);
+      }
     }
   }
 
@@ -249,6 +272,14 @@ public final class SmokeHarness {
           }
           return;
         }
+        if (!clientOptionsSaved) {
+          originalPauseOnLostFocus = minecraft.gameSettings.pauseOnLostFocus;
+          clientOptionsSaved = true;
+          minecraft.gameSettings.pauseOnLostFocus = false;
+        }
+        if (minecraft.theWorld != null && minecraft.currentScreen instanceof GuiIngameMenu) {
+          minecraft.displayGuiScreen(null);
+        }
         if (!launched && minecraft.currentScreen instanceof GuiMainMenu) {
           launched = true;
           minecraft.launchIntegratedServer(WORLD, WORLD, null);
@@ -277,6 +308,7 @@ public final class SmokeHarness {
           minecraft.loadWorld(null);
           ThreadedFileIOBase.threadedIOInstance.waitForFinish();
           writeResult();
+          minecraft.gameSettings.pauseOnLostFocus = originalPauseOnLostFocus;
           minecraft.shutdown();
         }
       } catch (Throwable error) {

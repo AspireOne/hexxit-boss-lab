@@ -54,6 +54,28 @@ class LabWorkflowTests(unittest.TestCase):
         with patch.object(lab, 'TARGET', self.root / 'instance'), self.assertRaisesRegex(ValueError, 'escapes'):
             lab.restore_smoke_world(snapshot, self.root / 'original-save', run)
 
+    def test_failed_final_combat_restore_rename_keeps_current_save_loadable(self):
+        target = self.root / 'instance'
+        world = target / 'minecraft/saves/Test'
+        world.mkdir(parents=True)
+        (world / 'level.dat').write_bytes(b'current save')
+        run = self.root / 'run'
+        snapshot = run / 'world-before'
+        snapshot.mkdir(parents=True)
+        (snapshot / 'level.dat').write_bytes(b'original save')
+        rename = Path.rename
+
+        def locked_restore(source, destination):
+            if source.name.endswith('.boss-restore'):
+                raise PermissionError('file locked')
+            return rename(source, destination)
+
+        with patch.object(lab, 'TARGET', target), patch.object(Path, 'rename', locked_restore), \
+                self.assertRaisesRegex(PermissionError, 'file locked'):
+            lab.restore_smoke_world(snapshot, world, run)
+        self.assertEqual(b'current save', (world / 'level.dat').read_bytes())
+        self.assertEqual(b'original save', (snapshot / 'level.dat').read_bytes())
+
     def test_process_probe_fails_closed_in_real_powershell(self):
         cases = (
             ("Write-Error 'CIM unavailable'", 10),

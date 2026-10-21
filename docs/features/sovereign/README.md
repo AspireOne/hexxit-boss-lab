@@ -40,7 +40,7 @@ The combat scenario takes a complete snapshot of the current lab save before lau
 
 Both successful and failed runs restore the exact pre-test save once Minecraft has exited. Local evidence under `.lab/runs/<run>/` includes screenshots, phase results, logs, `world-before`, and the exercised `world-after`. Restoration is confirmed by `world-restored.json`; a passing `summary.json` additionally requires successful assertions. Snapshots contain the whole save and can use substantial disk space.
 
-If Minecraft cannot exit, the runner refuses to replace the live save. Close that lab session, preserve the run directory, and recover from its `world-before` snapshot using `restore_smoke_world` in `scripts/lab.py` after validating the lab and stopped-process guard. Do not use `reset-world` to recover current progress: that command restores the older foundation baseline.
+If Minecraft cannot exit, the runner refuses to replace the live save. After an interrupted runner or game, close that lab session and preserve the run directory. Recover from its `world-before` snapshot using `restore_smoke_world` in `scripts/lab.py` after validating the lab, stopped-process guard, and `world-before-hashes.json`. Inspect any `.boss-restore` staging directory before retrying an interrupted restore; preserve both snapshots until recovery succeeds. Do not use `reset-world` to recover current progress: that command restores the older foundation baseline.
 
 Minecraft 1.5.2's ray tracer mutates its input vector. Production code copies vectors at that boundary so cover checks cannot corrupt locked warnings or collision geometry. Combat remains server-owned, with tests against the actual pack rather than a simulated Minecraft API.
 

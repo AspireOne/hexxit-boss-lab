@@ -362,7 +362,15 @@ def restore_smoke_world(snapshot, world, run):
     if tree_hashes(staged) != tree_hashes(snapshot):
         raise RuntimeError('Combat snapshot copy mismatch; current save preserved')
     world.rename(run / 'world-after')
-    staged.rename(world)
+    try:
+        staged.rename(world)
+    except OSError:
+        # Keep a loadable current save if the final rename fails (for example, a file lock).
+        try:
+            (run / 'world-after').rename(world)
+        except OSError as recovery_error:
+            raise RuntimeError('Combat restore incomplete; preserve the snapshot, staging directory, and ' + str(run)) from recovery_error
+        raise
 
 
 def smoke(scenario='target'):

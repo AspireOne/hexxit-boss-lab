@@ -86,7 +86,7 @@ The harness enters the test world from the title screen. The create phase invoke
 
 Shutdown order matters in this legacy pack: stop the integrated server while the client connection remains alive, disconnect after server save hooks finish, drain pending file writes, publish the result, then request normal Minecraft shutdown. Keep that order when extending the harness. The runner also checks for crashes produced during saving and exit.
 
-The harness retains the copied player's equipment and capabilities. It uses tick conditions and bounded timeouts, rather than assuming that loading completes after a fixed delay. Only an explicitly requested smoke run auto-enters the world. Smoke runs advance the lab world's normal simulation; use `reset-world` when a fresh baseline is needed.
+The original target scenario retains the copied player's equipment and capabilities. It uses tick conditions and bounded timeouts, rather than assuming that loading completes after a fixed delay. Only an explicitly requested smoke run auto-enters the world. Target smoke advances the lab world's normal simulation; use `reset-world` when a fresh baseline is needed.
 
 The harness also captures a screenshot through Minecraft's own screenshot API, after turning the player toward the damaged target. Inspect that PNG in the run directory to verify the model, texture, and health label. This is repeatable even when desktop automation is unavailable.
 
