@@ -34,4 +34,14 @@ A player kill awards one Nether Star and 150 experience through normal loot hand
 
 Production behaviour and rendering live in the `sovereign` feature package. Combat is server-owned; health, action, timer, and locked geometry synchronize through the legacy DataWatcher. Combat constants are the tuning surface; there is no separate encounter framework or configuration UI.
 
-The implementation plan calls for the existing foundation smoke plus a separate `.\lab.ps1 smoke-boss` scenario: hit/dodge/cover behaviour, actual equipment and resurrection, phase transitions, synchronization, persistence, death, and cleanup. Runtime evidence belongs in `.lab/runs/`. See the verification record once runtime acceptance is complete. Balance remains subject to the first human fight.
+Run `.\lab.ps1 smoke` for the original foundation scenario and `.\lab.ps1 smoke-boss` for combat integration. Close Minecraft first and leave the game untouched while the harness runs.
+
+The combat scenario takes a complete snapshot of the current lab save before launching. It exercises real sword and Crystal Bow attacks; lance, rush, and blast hits; dodges and cover; enchanted armour and Phoenix Feather resurrection; phase thresholds; disengagement recovery; client synchronization; save/reload; loot; Peaceful; and administrative cleanup. Geometry probes cancel damage at the Forge boundary after observing delivery. Equipment probes allow damage through the real mod pipeline.
+
+Both successful and failed runs restore the exact pre-test save once Minecraft has exited. Local evidence under `.lab/runs/<run>/` includes screenshots, phase results, logs, `world-before`, and the exercised `world-after`. Restoration is confirmed by `world-restored.json`; a passing `summary.json` additionally requires successful assertions. Snapshots contain the whole save and can use substantial disk space.
+
+If Minecraft cannot exit, the runner refuses to replace the live save. Close that lab session, preserve the run directory, and recover from its `world-before` snapshot using `restore_smoke_world` in `scripts/lab.py` after validating the lab and stopped-process guard. Do not use `reset-world` to recover current progress: that command restores the older foundation baseline.
+
+Minecraft 1.5.2's ray tracer mutates its input vector. Production code copies vectors at that boundary so cover checks cannot corrupt locked warnings or collision geometry. Combat remains server-owned, with tests against the actual pack rather than a simulated Minecraft API.
+
+Balance remains subject to the first human fight. Automated damage measurements establish equipment compatibility, not how difficult or enjoyable the fight feels.

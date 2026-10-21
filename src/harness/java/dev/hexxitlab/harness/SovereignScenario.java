@@ -31,12 +31,14 @@ public final class SovereignScenario {
   private static final String TAG = "SovereignSmoke";
   private static final String[] CASES = {
     "lance-hit", "lance-dodge", "lance-cover", "rush-hit", "rush-dodge",
-    "blast-hit", "blast-escape", "blast-cover", "equipped-hit", "phoenix-rescue"
+    "blast-hit", "blast-escape", "blast-cover", "equipped-hit", "phoenix-rescue",
+    "phase-two-lance", "phase-three-rush"
   };
   private final String run;
   private final String phase;
   private final File directory;
   private final EnumSet<Sovereign.Action> pictures = EnumSet.noneOf(Sovereign.Action.class);
+  private final EnumSet<Sovereign.Action> impactPictures = EnumSet.noneOf(Sovereign.Action.class);
   private volatile int entityId = -1;
   private volatile int observedHealth = -1;
   private volatile int observedAction = -1;
@@ -44,6 +46,7 @@ public final class SovereignScenario {
   private volatile double observedAimY;
   private volatile double observedAimZ;
   private volatile int pictureCount;
+  private volatile int impactPictureCount;
   private Sovereign boss;
   private NBTTagCompound originalPlayer;
   private int originalDifficulty;
@@ -62,6 +65,7 @@ public final class SovereignScenario {
   private boolean warned;
   private boolean synchronizedWarning;
   private boolean wall;
+  private int recoveryTicks;
   private Vec3 lockedAim;
   private Vec3 rushStart;
   private double playerZ;
@@ -155,6 +159,9 @@ public final class SovereignScenario {
         if (!warned) {
           require(hits == 0 && boss.getActionTicks() >= 20, "Full warning must precede damage");
           warned = true;
+          if (testCase >= 10) {
+            require(boss.getActionTicks() == 22, "Later phases must shorten the attack warning");
+          }
           lockedAim = boss.getAim();
           BossLab.LOGGER.info(
               "Sovereign probe "
@@ -195,6 +202,10 @@ public final class SovereignScenario {
         }
       }
       if (warned && action == Sovereign.Action.RECOVER) {
+        // Let the client render the impact before removing this case's entity.
+        if (++recoveryTicks < 6) {
+          return false;
+        }
         BossLab.LOGGER.info(
             "Sovereign impact "
                 + CASES[testCase]
@@ -217,10 +228,10 @@ public final class SovereignScenario {
             hits == (shouldHit ? 1 : 0),
             CASES[testCase] + ": expected " + (shouldHit ? 1 : 0) + " hit, saw " + hits);
         if (shouldHit) {
-          int expectedDamage = testCase == 3 ? 100 : testCase == 5 ? 36 : 48;
+          int expectedDamage = testCase == 3 || testCase == 11 ? 100 : testCase == 5 ? 36 : 48;
           require(rawDamage == expectedDamage, "Attack must deliver its documented raw damage");
         }
-        if (testCase == 3 || testCase == 4) {
+        if (testCase == 3 || testCase == 4 || testCase == 11) {
           require(
               rushStart.distanceTo(Vec3.createVectorHelper(boss.posX, boss.posY, boss.posZ))
                   <= lockedAim.lengthVector() + 0.001,
@@ -248,6 +259,7 @@ public final class SovereignScenario {
           startCase(world);
         } else {
           require(pictureCount == 3, "Screenshots of all three attack warnings required");
+          require(impactPictureCount == 2, "Lance and blast impact screenshots required");
           boss.setDead();
           boss = new Sovereign(world);
           boss.setPosition(x + 8, y, z);
@@ -339,7 +351,7 @@ public final class SovereignScenario {
   }
 
   private Sovereign.Action expectedAttack() {
-    return testCase == 3 || testCase == 4
+    return testCase == 3 || testCase == 4 || testCase == 11
         ? Sovereign.Action.RUSH
         : testCase >= 5 && testCase <= 7 ? Sovereign.Action.BLAST : Sovereign.Action.LANCE;
   }
@@ -355,12 +367,18 @@ public final class SovereignScenario {
             ? 2
             : expectedAttack() == Sovereign.Action.RUSH ? 1 : 0);
     boss.readEntityFromNBT(state);
+    if (testCase == 10) {
+      boss.setEntityHealth(800);
+    }
+    if (testCase == 11) {
+      boss.setEntityHealth(400);
+    }
     boss.setPosition(x + 8, y, z);
     require(world.spawnEntityInWorld(boss), "Combat case boss must spawn");
     entityId = boss.entityId;
-    ticks = hits = rawDamage = 0;
+    ticks = hits = rawDamage = recoveryTicks = 0;
     warned = synchronizedWarning = false;
-    protect = testCase < 8;
+    protect = testCase < 8 || testCase >= 10;
     playerZ = z;
     player.clearActivePotions();
     player.hurtResistantTime = 0;
@@ -475,24 +493,34 @@ public final class SovereignScenario {
     Sovereign visible = (Sovereign) entity;
     face(minecraft.thePlayer, visible);
     Sovereign.Action action = visible.getAction();
+    boolean impact =
+        action == Sovereign.Action.RECOVER
+            && (visible.getImpact() == Sovereign.Action.LANCE && visible.getActionTicks() >= 15
+                || visible.getImpact() == Sovereign.Action.BLAST && visible.getActionTicks() >= 23);
+    if (impact && !impactPictures.contains(visible.getImpact())) {
+      savePicture(minecraft, visible.getImpact() + "-impact");
+      impactPictures.add(visible.getImpact());
+      impactPictureCount = impactPictures.size();
+    }
     if ((action == Sovereign.Action.LANCE
             || action == Sovereign.Action.RUSH
             || action == Sovereign.Action.BLAST)
         && visible.getActionTicks() < 16
         && !pictures.contains(action)) {
-      File evidence = new File(directory, "bosslab-evidence");
-      if (!evidence.isDirectory() && !evidence.mkdirs()) {
-        throw new IOException("Cannot create screenshot directory");
-      }
-      BossLab.LOGGER.info(
-          ScreenShotHelper.func_74292_a(
-              evidence,
-              run + "-" + action + ".png",
-              minecraft.displayWidth,
-              minecraft.displayHeight));
+      savePicture(minecraft, action.toString());
       pictures.add(action);
       pictureCount = pictures.size();
     }
+  }
+
+  private void savePicture(Minecraft minecraft, String label) throws IOException {
+    File evidence = new File(directory, "bosslab-evidence");
+    if (!evidence.isDirectory() && !evidence.mkdirs()) {
+      throw new IOException("Cannot create screenshot directory");
+    }
+    BossLab.LOGGER.info(
+        ScreenShotHelper.func_74292_a(
+            evidence, run + "-" + label + ".png", minecraft.displayWidth, minecraft.displayHeight));
   }
 
   private static void face(net.minecraft.entity.EntityLiving viewer, Entity target) {

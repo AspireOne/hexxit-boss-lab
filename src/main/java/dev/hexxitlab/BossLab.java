@@ -11,7 +11,7 @@ import dev.hexxitlab.sovereign.Sovereign;
 import java.util.logging.Logger;
 import net.minecraftforge.common.MinecraftForge;
 
-@Mod(modid = BossLab.MOD_ID, name = "Hexxit Boss Lab", version = "0.1.0")
+@Mod(modid = BossLab.MOD_ID, name = "Hexxit Boss Lab", version = "0.2.0")
 @NetworkMod(clientSideRequired = true, serverSideRequired = true)
 public final class BossLab {
   public static final String MOD_ID = "hexxitbosslab";
