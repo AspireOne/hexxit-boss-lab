@@ -17,8 +17,8 @@ import net.minecraft.world.World;
 
 /** Server-owned combat. Each attack locks its direction before its visible windup begins. */
 public final class Sovereign extends EntityFlying implements IBossDisplayData {
-  public static final int MAX_HEALTH = 1200;
-  public static final double BLAST_RADIUS = 12;
+  public static final int MAX_HEALTH = 3600;
+  public static final double BLAST_RADIUS = 18;
   public static final double LANCE_RADIUS = 1.2;
   public static final double RUSH_RADIUS = 1.8;
   public static final double CENTER_HEIGHT = 1.8;
@@ -28,7 +28,11 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
   private static final int RESET_TICKS = 300;
   private static final int LANCE_DAMAGE = 48;
   private static final int RUSH_DAMAGE = 100;
-  private static final int BLAST_DAMAGE = 36;
+  private static final int BLAST_DAMAGE = 64;
+  private static final double CLOSE_DISTANCE = 4.5;
+  private static final double FLANK_SPEED = 0.55;
+  private static final double LATERAL_TRIGGER_SPEED = 0.18;
+  private static final double BLAST_TRIGGER_RANGE = 20;
   private static final double RUSH_SPEED = 3.2;
   private static final double PLAYER_HIT_RADIUS = 0.45;
   private static final int IMPACT = 26;
@@ -57,6 +61,7 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
   private double lastTargetY;
   private double lastTargetZ;
   private boolean sampledTarget;
+  private boolean previousBlast;
   private final Set<Integer> rushHits = new HashSet<Integer>();
 
   public Sovereign(World world) {
@@ -276,20 +281,28 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
     double dy = opponent.posY + 0.5 - posY;
     double dz = opponent.posZ - posZ;
     double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (distance > 7) {
+    if (distance > CLOSE_DISTANCE) {
       double speed = distance > 28 ? 2.8 : 0.7 + getPhase() * 0.2;
-      double step = Math.min(speed, distance - 7);
+      double step = Math.min(speed, distance - CLOSE_DISTANCE);
       setPosition(
           posX + dx / distance * step, posY + dy / distance * step, posZ + dz / distance * step);
+    } else {
+      // Flank within melee range rather than becoming a stationary archery target.
+      double horizontal = Math.sqrt(dx * dx + dz * dz);
+      double sideX = horizontal < 0.01 ? 1 : -dz / horizontal;
+      double sideZ = horizontal < 0.01 ? 0 : dx / horizontal;
+      setPosition(posX + sideX * FLANK_SPEED, posY, posZ + sideZ * FLANK_SPEED);
     }
   }
 
   private void prepareAttack() {
-    // Alternate interception and rush; periodically punish staying close with a spherical blast.
+    // A broad attack pressures fast lateral movement; never chain two blasts back-to-back.
+    boolean close = getDistanceSqToEntity(opponent) < BLAST_TRIGGER_RANGE * BLAST_TRIGGER_RANGE;
     Action attack =
-        attackNumber % 3 == 2 && getDistanceSqToEntity(opponent) < 196
+        !previousBlast && close && (attackNumber % 3 == 2 || movingLaterally())
             ? Action.BLAST
             : attackNumber % 2 == 0 ? Action.LANCE : Action.RUSH;
+    previousBlast = attack == Action.BLAST;
     attackNumber = (attackNumber + 1) % 6;
     Vec3 start = center();
     // Sample positions ourselves: vanilla prevPos can already equal pos during an entity tick.
@@ -327,6 +340,23 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
     int windup = attack == Action.BLAST ? 36 : attack == Action.RUSH ? 26 : 24;
     changeAction(attack, windup - (getPhase() - 1) * 2);
     worldObj.playSoundAtEntity(this, "mob.wither.idle", 2, attack == Action.BLAST ? 0.5F : 1.5F);
+  }
+
+  private boolean movingLaterally() {
+    if (!sampledTarget) {
+      return false;
+    }
+    double dx = opponent.posX - posX;
+    double dy = opponent.posY + 0.9 - (posY + CENTER_HEIGHT);
+    double dz = opponent.posZ - posZ;
+    double vx = opponent.posX - lastTargetX;
+    double vy = opponent.posY - lastTargetY;
+    double vz = opponent.posZ - lastTargetZ;
+    double distanceSquared = dx * dx + dy * dy + dz * dz;
+    double radial =
+        distanceSquared < 0.01 ? 0 : (vx * dx + vy * dy + vz * dz) / Math.sqrt(distanceSquared);
+    double lateralSquared = vx * vx + vy * vy + vz * vz - radial * radial;
+    return lateralSquared >= LATERAL_TRIGGER_SPEED * LATERAL_TRIGGER_SPEED;
   }
 
   private static double clamp(double value, double limit) {
@@ -413,12 +443,14 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
   public void writeEntityToNBT(NBTTagCompound nbt) {
     super.writeEntityToNBT(nbt);
     nbt.setInteger("SovereignAttack", attackNumber);
+    nbt.setBoolean("SovereignPreviousBlast", previousBlast);
   }
 
   @Override
   public void readEntityFromNBT(NBTTagCompound nbt) {
     super.readEntityFromNBT(nbt);
     attackNumber = Math.max(0, nbt.getInteger("SovereignAttack")) % 6;
+    previousBlast = nbt.getBoolean("SovereignPreviousBlast");
     // Reload cancels transient hazards and gives a fresh warning before any attack.
     changeAction(Action.HUNT, 60);
     dataWatcher.updateObject(HEALTH, Integer.valueOf(getHealth()));

@@ -69,6 +69,14 @@ public final class SovereignScenario {
   private Vec3 lockedAim;
   private Vec3 rushStart;
   private double playerZ;
+  private double playerX;
+  private double playerY;
+  private int orbitCase;
+  private int orbitTick;
+  private Vec3 orbitBossStart;
+  private static final String[] ORBIT_CASES = {
+    "clockwise-close-circle", "counterclockwise-wide-circle", "circle-breakout", "vertical-circle"
+  };
   private EntityPlayerMP player;
 
   SovereignScenario(String run, String phase, File directory) {
@@ -103,6 +111,8 @@ public final class SovereignScenario {
       y = 220;
       z = player.posZ;
       playerZ = z;
+      playerX = x;
+      playerY = y;
       player.capabilities.allowFlying = true;
       player.capabilities.isFlying = true;
       player.capabilities.disableDamage = false;
@@ -114,7 +124,7 @@ public final class SovereignScenario {
         server.getCommandManager().executeCommand(player, "bosslab clear");
         server.getCommandManager().executeCommand(player, "bosslab sovereign");
         boss = findBoss(world, null);
-        if (boss == null || boss.getHealth() != 1200) {
+        if (boss == null || boss.getHealth() != 3600) {
           throw new IllegalStateException("Summon must create a healthy boss");
         }
         server.getCommandManager().executeCommand(player, "bosslab sovereign");
@@ -125,10 +135,10 @@ public final class SovereignScenario {
         require(sword != null && sword.isItemEnchanted(), "Copied enchanted sword required");
         player.inventory.currentItem = 0;
         player.attackTargetEntityWithCurrentItem(boss);
-        require(boss.getHealth() < 1200, "Real equipped sword must damage boss");
-        BossLab.LOGGER.info("Sovereign equipment: sword damage=" + (1200 - boss.getHealth()));
+        require(boss.getHealth() < 3600, "Real equipped sword must damage boss");
+        BossLab.LOGGER.info("Sovereign equipment: sword damage=" + (3600 - boss.getHealth()));
         boss.hurtResistantTime = 0;
-        boss.setEntityHealth(1200);
+        boss.setEntityHealth(3600);
         face(player, boss);
         ItemStack bow = player.inventory.getStackInSlot(4);
         if (bow == null || !bow.getItem().getClass().getName().contains("bowDiamond")) {
@@ -141,10 +151,17 @@ public final class SovereignScenario {
       }
       return false;
     }
+    if (stage == 5) {
+      moveOrbit();
+    }
     pinPlayer();
+    if (stage == 2 && !warned && boss.getAction() == Sovereign.Action.HUNT) {
+      // Stable attack fixtures; unconstrained pursuit is exercised by the circling scenarios.
+      boss.setPosition(x + 8, y, z);
+    }
     if (stage == 1) {
-      if (boss.getHealth() < 1200) {
-        BossLab.LOGGER.info("Sovereign equipment: Crystal Bow damage=" + (1200 - boss.getHealth()));
+      if (boss.getHealth() < 3600) {
+        BossLab.LOGGER.info("Sovereign equipment: Crystal Bow damage=" + (3600 - boss.getHealth()));
         featherId = findItem("PhoenixFeather");
         require(featherId >= 0, "Copied Phoenix Feathers required");
         startCase(world);
@@ -228,7 +245,7 @@ public final class SovereignScenario {
             hits == (shouldHit ? 1 : 0),
             CASES[testCase] + ": expected " + (shouldHit ? 1 : 0) + " hit, saw " + hits);
         if (shouldHit) {
-          int expectedDamage = testCase == 3 || testCase == 11 ? 100 : testCase == 5 ? 36 : 48;
+          int expectedDamage = testCase == 3 || testCase == 11 ? 100 : testCase == 5 ? 64 : 48;
           require(rawDamage == expectedDamage, "Attack must deliver its documented raw damage");
         }
         if (testCase == 3 || testCase == 4 || testCase == 11) {
@@ -260,15 +277,8 @@ public final class SovereignScenario {
         } else {
           require(pictureCount == 3, "Screenshots of all three attack warnings required");
           require(impactPictureCount == 2, "Lance and blast impact screenshots required");
-          boss.setDead();
-          boss = new Sovereign(world);
-          boss.setPosition(x + 8, y, z);
-          require(world.spawnEntityInWorld(boss), "Reset probe boss must spawn");
-          boss.setEntityHealth(600);
-          player.capabilities.disableDamage = true;
-          hits = 0;
-          ticks = 0;
-          stage = 3;
+          startOrbit(world);
+          stage = 5;
         }
       }
       require(ticks < 160, "Combat case timed out: " + CASES[Math.min(testCase, CASES.length - 1)]);
@@ -277,15 +287,15 @@ public final class SovereignScenario {
           hits == 0 && boss.getAction() == Sovereign.Action.HUNT,
           "Invulnerable players must not be attacked");
       if (ticks >= 305) {
-        require(boss.getHealth() == 1200, "Boss must recover after disengagement");
-        boss.setEntityHealth(801);
-        require(boss.getPhase() == 1, "Above 800 is phase one");
-        boss.setEntityHealth(800);
-        require(boss.getPhase() == 2, "800 starts phase two");
-        boss.setEntityHealth(401);
-        require(boss.getPhase() == 2, "Above 400 is phase two");
-        boss.setEntityHealth(400);
-        require(boss.getPhase() == 3, "400 starts phase three");
+        require(boss.getHealth() == 3600, "Boss must recover after disengagement");
+        boss.setEntityHealth(2401);
+        require(boss.getPhase() == 1, "Above 2400 is phase one");
+        boss.setEntityHealth(2400);
+        require(boss.getPhase() == 2, "21200 starts phase two");
+        boss.setEntityHealth(1201);
+        require(boss.getPhase() == 2, "Above 1200 is phase two");
+        boss.setEntityHealth(1200);
+        require(boss.getPhase() == 3, "1200 starts phase three");
         boss.setEntityHealth(777);
         boss.getEntityData().setString(TAG, run);
         entityId = boss.entityId;
@@ -294,6 +304,45 @@ public final class SovereignScenario {
     } else if (stage == 4 && observedHealth == 777) {
       restorePlayer();
       return true;
+    } else if (stage == 5) {
+      Sovereign.Action action = boss.getAction();
+      if (!warned && action != Sovereign.Action.HUNT) {
+        require(
+            action == Sovereign.Action.BLAST,
+            "Fast circling must trigger a blast before the scheduled third attack");
+        require(
+            boss.getActionTicks() == 36 && hits == 0,
+            "Reactive blast needs its full dodge warning");
+        require(
+            orbitBossStart.distanceTo(Vec3.createVectorHelper(boss.posX, boss.posY, boss.posZ)) > 1,
+            "Boss must reposition against close circling");
+        warned = true;
+      }
+      if (warned && action == Sovereign.Action.RECOVER) {
+        require(
+            hits == (orbitCase == 2 ? 0 : 1),
+            "Circle pressure or breakout failed: " + ORBIT_CASES[orbitCase]);
+        if (orbitCase != 2) {
+          require(rawDamage == 64, "Crown Break must threaten a circling player");
+        }
+        BossLab.LOGGER.info("Sovereign combat PASS: " + ORBIT_CASES[orbitCase]);
+        if (++orbitCase < ORBIT_CASES.length) {
+          startOrbit(world);
+        } else {
+          boss.setDead();
+          boss = new Sovereign(world);
+          boss.setPosition(x + 8, y, z);
+          require(world.spawnEntityInWorld(boss), "Reset probe boss must spawn");
+          boss.setEntityHealth(600);
+          player.capabilities.disableDamage = true;
+          playerX = x;
+          playerY = y;
+          playerZ = z;
+          hits = ticks = 0;
+          stage = 3;
+        }
+      }
+      require(ticks < 180, "Circling scenario timed out");
     } else if (stage == 20) {
       boss = findBoss(world, run);
       if (boss == null) {
@@ -368,10 +417,10 @@ public final class SovereignScenario {
             : expectedAttack() == Sovereign.Action.RUSH ? 1 : 0);
     boss.readEntityFromNBT(state);
     if (testCase == 10) {
-      boss.setEntityHealth(800);
+      boss.setEntityHealth(2400);
     }
     if (testCase == 11) {
-      boss.setEntityHealth(400);
+      boss.setEntityHealth(1200);
     }
     boss.setPosition(x + 8, y, z);
     require(world.spawnEntityInWorld(boss), "Combat case boss must spawn");
@@ -390,7 +439,39 @@ public final class SovereignScenario {
   private void pinPlayer() {
     player.motionX = player.motionY = player.motionZ = 0;
     player.fallDistance = 0;
-    player.setPositionAndUpdate(x, y, playerZ);
+    player.setPositionAndUpdate(playerX, playerY, playerZ);
+  }
+
+  private void startOrbit(World world) {
+    boss.setDead();
+    boss = new Sovereign(world);
+    boss.setPosition(x + 8, y, z);
+    require(world.spawnEntityInWorld(boss), "Circling probe boss must spawn");
+    entityId = boss.entityId;
+    orbitBossStart = Vec3.createVectorHelper(boss.posX, boss.posY, boss.posZ);
+    ticks = hits = rawDamage = orbitTick = 0;
+    warned = false;
+    protect = true;
+    player.clearActivePotions();
+    player.hurtResistantTime = 0;
+    moveOrbit();
+    pinPlayer();
+  }
+
+  private void moveOrbit() {
+    double radius = orbitCase == 1 ? 14 : orbitCase == 3 ? 10 : 6;
+    double angle = ++orbitTick * (orbitCase == 1 ? -0.05 : 0.1);
+    playerX = x + 8 + Math.cos(angle) * radius;
+    playerY = y + (orbitCase == 3 ? Math.sin(angle) * radius : 0);
+    playerZ = z + (orbitCase == 3 ? 0 : Math.sin(angle) * radius);
+    if (orbitCase == 2 && warned) {
+      // Break out radially after the warning instead of continuing the same safe-looking orbit.
+      double dx = playerX - boss.posX;
+      double dz = playerZ - boss.posZ;
+      double length = Math.sqrt(dx * dx + dz * dz);
+      playerX = boss.posX + dx / length * 26;
+      playerZ = boss.posZ + dz / length * 26;
+    }
   }
 
   private void restorePlayer() {
