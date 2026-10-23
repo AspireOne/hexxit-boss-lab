@@ -130,8 +130,18 @@ final class PracticeScenario {
         if (value instanceof EntityItem || value instanceof EntityXPOrb) {
           Entity entity = (Entity) value;
           require(
-              entity.getDistanceSq(x, y, z) > 400,
-              "Practice death must not leave duplicate item or XP drops");
+              entity.isDead || entity.getDistanceSq(x, y, z) > 400,
+              "Practice death must not leave duplicate live drops: "
+                  + entity.getClass().getName()
+                  + (entity instanceof EntityItem
+                      ? " " + ((EntityItem) entity).getEntityItem()
+                      : " XP")
+                  + " at "
+                  + entity.posX
+                  + ","
+                  + entity.posY
+                  + ","
+                  + entity.posZ);
         }
       }
       requestRespawn = false;
