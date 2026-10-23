@@ -17,6 +17,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.WorldServer;
 import net.minecraftforge.event.EventPriority;
 import net.minecraftforge.event.ForgeSubscribe;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.player.PlayerDropsEvent;
 
 /** Lab-only character checkpoints, carried across death by Forge's PlayerPersisted contract. */
@@ -159,6 +160,20 @@ public final class PracticeCheckpoint implements ITickHandler {
     player.experienceLevel = 0;
     persisted(player).getCompoundTag(KEY).setBoolean("PendingRespawn", true);
     BossLab.LOGGER.info("Practice death recorded for " + player.username + "; awaiting Respawn");
+  }
+
+  @ForgeSubscribe(priority = EventPriority.LOWEST)
+  public void onDeath(LivingDeathEvent event) {
+    if (!(event.entityLiving instanceof EntityPlayer) || event.entityLiving.worldObj.isRemote) {
+      return;
+    }
+    EntityPlayer player = (EntityPlayer) event.entityLiving;
+    if (!exists(player)) {
+      return;
+    }
+    // keepInventory skips PlayerDropsEvent entirely. A real, uncanceled death still needs recovery.
+    player.experienceLevel = 0;
+    persisted(player).getCompoundTag(KEY).setBoolean("PendingRespawn", true);
   }
 
   public void tickStart(EnumSet<TickType> types, Object... data) {}

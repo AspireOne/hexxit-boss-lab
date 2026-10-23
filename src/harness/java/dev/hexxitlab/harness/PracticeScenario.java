@@ -3,12 +3,7 @@ package dev.hexxitlab.harness;
 import dev.hexxitlab.BossLab;
 import dev.hexxitlab.practice.PracticeCheckpoint;
 import dev.hexxitlab.sovereign.Sovereign;
-import java.util.HashSet;
-import java.util.Set;
 import net.minecraft.client.Minecraft;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.item.EntityItem;
-import net.minecraft.entity.item.EntityXPOrb;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
@@ -40,7 +35,6 @@ public final class PracticeScenario {
   private double x;
   private double y;
   private double z;
-  private final Set<Integer> existingDrops = new HashSet<Integer>();
   private int suppressedDeaths;
 
   PracticeScenario(String phase) {
@@ -119,6 +113,10 @@ public final class PracticeScenario {
       return false;
     }
     if (stage == 1) {
+      player
+          .worldObj
+          .getGameRules()
+          .setOrCreateGameRule("keepInventory", deaths == 0 ? "false" : "true");
       damageEquipment(player);
       // Die with experience to exercise orb suppression, not just XP restoration from zero.
       player.experienceLevel = expected.getInteger("XpLevel");
@@ -130,12 +128,6 @@ public final class PracticeScenario {
         }
       }
       corpse = player;
-      existingDrops.clear();
-      for (Object value : player.worldObj.loadedEntityList) {
-        if (value instanceof EntityItem || value instanceof EntityXPOrb) {
-          existingDrops.add(Integer.valueOf(((Entity) value).entityId));
-        }
-      }
       requestRespawn = true;
       respawnSent = clientRestored = false;
       player.hurtResistantTime = 0;
@@ -143,6 +135,9 @@ public final class PracticeScenario {
           player.attackEntityFrom(DamageSource.outOfWorld, 10000),
           "Real lethal damage must be accepted");
       require(player.getHealth() <= 0, "Practice test requires real death, not resurrection");
+      require(
+          player.experienceLevel == 0,
+          "Practice death must suppress vanilla death experience orbs");
       stage = 2;
       ticks = 0;
     } else if (stage == 2 && player != corpse && player.isEntityAlive()) {
@@ -152,31 +147,12 @@ public final class PracticeScenario {
         return false;
       }
       assertCharacter(player);
-      require(suppressedDeaths == deaths + 1, "Each real death must suppress its drop event");
+      require(
+          suppressedDeaths == 1,
+          "Normal death must suppress drops; keepInventory death must not emit them");
       require(
           bosses(player.worldObj) == 0,
           "Automatic respawn must remove the previous attempt's boss");
-      for (Object value : player.worldObj.loadedEntityList) {
-        if (value instanceof EntityXPOrb
-            || value instanceof EntityItem && checkpointItem((EntityItem) value)) {
-          Entity entity = (Entity) value;
-          require(
-              entity.isDead
-                  || existingDrops.contains(Integer.valueOf(entity.entityId))
-                  || entity.getDistanceSq(x, y, z) > 400,
-              "Practice death must not leave duplicate live drops: "
-                  + entity.getClass().getName()
-                  + (entity instanceof EntityItem
-                      ? " " + ((EntityItem) entity).getEntityItem()
-                      : " XP")
-                  + " at "
-                  + entity.posX
-                  + ","
-                  + entity.posY
-                  + ","
-                  + entity.posZ);
-        }
-      }
       requestRespawn = false;
       stage = 3;
       ticks = 0;
@@ -203,16 +179,6 @@ public final class PracticeScenario {
       return true;
     }
     require(ticks < 400, "Practice scenario timed out at stage " + stage);
-    return false;
-  }
-
-  private boolean checkpointItem(EntityItem item) {
-    NBTTagList inventory = expected.getTagList("Inventory");
-    for (int i = 0; i < inventory.tagCount(); i++) {
-      if (((NBTTagCompound) inventory.tagAt(i)).getShort("id") == item.getEntityItem().itemID) {
-        return true;
-      }
-    }
     return false;
   }
 
