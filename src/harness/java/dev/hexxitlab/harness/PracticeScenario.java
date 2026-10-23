@@ -252,7 +252,10 @@ final class PracticeScenario {
                   .equals(expected.getTagList("Inventory"))
               && minecraft.thePlayer.inventory.currentItem
                   == expected.getInteger("SelectedItemSlot")
-              && minecraft.thePlayer.getDistanceSq(x, y, z) < 1;
+              // The local legacy player's posY includes its eye offset; compare feet on both sides.
+              && Math.abs(minecraft.thePlayer.posX - x) < 0.5
+              && Math.abs(minecraft.thePlayer.boundingBox.minY - y) < 0.5
+              && Math.abs(minecraft.thePlayer.posZ - z) < 0.5;
     }
   }
 
