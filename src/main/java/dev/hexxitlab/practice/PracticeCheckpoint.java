@@ -35,6 +35,10 @@ public final class PracticeCheckpoint implements ITickHandler {
     return persisted(player).hasKey(KEY);
   }
 
+  public static boolean awaitingRecovery(EntityPlayer player) {
+    return exists(player) && persisted(player).getCompoundTag(KEY).getBoolean("PendingRespawn");
+  }
+
   public static void capture(EntityPlayerMP player, Sovereign boss) {
     if (!player.isEntityAlive() || player.ridingEntity != null || player.isPlayerSleeping()) {
       throw new IllegalStateException(
@@ -162,9 +166,7 @@ public final class PracticeCheckpoint implements ITickHandler {
     }
     for (Object value : server.getConfigurationManager().playerEntityList.toArray()) {
       EntityPlayerMP player = (EntityPlayerMP) value;
-      if (player.isEntityAlive()
-          && exists(player)
-          && persisted(player).getCompoundTag(KEY).getBoolean("PendingRespawn")) {
+      if (player.isEntityAlive() && awaitingRecovery(player)) {
         restore(player);
       }
     }

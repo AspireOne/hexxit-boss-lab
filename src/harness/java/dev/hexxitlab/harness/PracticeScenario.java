@@ -114,7 +114,7 @@ final class PracticeScenario {
       ticks = 0;
     } else if (stage == 2 && player != corpse && player.isEntityAlive()) {
       // The production handler runs in the same server tick; allow its restoration to complete.
-      if (player.inventory.getCurrentItem() == null) {
+      if (PracticeCheckpoint.awaitingRecovery(player)) {
         require(ticks < 120, "Automatic restore must run after respawn");
         return false;
       }
