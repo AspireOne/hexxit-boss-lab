@@ -161,7 +161,10 @@ final class PracticeScenario {
 
   private void assertCharacter(EntityPlayerMP player) {
     require(
-        player.inventory.writeToNBT(new NBTTagList()).equals(expected.getTagList("Inventory")),
+        player
+            .inventory
+            .writeToNBT(new NBTTagList("Inventory"))
+            .equals(expected.getTagList("Inventory")),
         "Inventory, armour, enchantments, durability, bags and consumables must match checkpoint");
     require(player.getHealth() == expected.getShort("Health"), "Health must match checkpoint");
     require(
@@ -218,7 +221,7 @@ final class PracticeScenario {
           minecraft
                   .thePlayer
                   .inventory
-                  .writeToNBT(new NBTTagList())
+                  .writeToNBT(new NBTTagList("Inventory"))
                   .equals(expected.getTagList("Inventory"))
               && minecraft.thePlayer.getDistanceSq(x, y, z) < 1;
     }
