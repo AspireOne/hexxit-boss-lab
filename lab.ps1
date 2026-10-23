@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('setup', 'check', 'build', 'apply', 'play', 'smoke', 'smoke-boss', 'reset-world', 'rollback')]
+    [ValidateSet('setup', 'check', 'build', 'apply', 'play', 'smoke', 'smoke-boss', 'smoke-practice', 'reset-world', 'rollback')]
     [string]$Command = 'check'
 )
 $ErrorActionPreference = 'Stop'

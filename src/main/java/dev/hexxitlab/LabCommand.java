@@ -1,5 +1,6 @@
 package dev.hexxitlab;
 
+import dev.hexxitlab.practice.PracticeCheckpoint;
 import dev.hexxitlab.sovereign.Sovereign;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommand;
@@ -23,7 +24,7 @@ public final class LabCommand extends CommandBase {
 
   @Override
   public String getCommandUsage(ICommandSender sender) {
-    return "/bosslab spawn|sovereign|status|clear";
+    return "/bosslab spawn|sovereign|retry|practice-off|status|clear";
   }
 
   @Override
@@ -38,6 +39,19 @@ public final class LabCommand extends CommandBase {
     }
     EntityPlayerMP player = getCommandSenderAsPlayer(sender);
     World world = player.worldObj;
+    if ("practice-off".equals(args[0])) {
+      PracticeCheckpoint.forget(player);
+      sender.sendChatToPlayer("Practice recovery disabled. Death and drops now behave normally.");
+      return;
+    }
+    if ("retry".equals(args[0])) {
+      if (!PracticeCheckpoint.restore(player)) {
+        sender.sendChatToPlayer("No practice checkpoint yet. Summon a Sovereign first.");
+        return;
+      }
+      processCommand(player, new String[] {"sovereign"});
+      return;
+    }
     if ("sovereign".equals(args[0])) {
       if (world.difficultySetting == 0) {
         sender.sendChatToPlayer("Set difficulty to Easy, Normal or Hard before summoning.");
@@ -57,8 +71,15 @@ public final class LabCommand extends CommandBase {
       if (!world.spawnEntityInWorld(boss)) {
         throw new IllegalStateException("Sovereign spawn rejected");
       }
+      try {
+        PracticeCheckpoint.capture(player, boss);
+      } catch (RuntimeException error) {
+        boss.setDead();
+        throw error;
+      }
       BossLab.LOGGER.info("Sovereign summoned: " + boss.getPersistentID());
-      sender.sendChatToPlayer("The Hexbound Sovereign awakens. /bosslab clear ends the fight.");
+      sender.sendChatToPlayer(
+          "Checkpoint saved. Click Respawn after death to recover your gear. /bosslab retry restarts the fight.");
     } else if ("spawn".equals(args[0])) {
       LabTarget target = new LabTarget(world);
       target.setPosition(player.posX + 2, player.posY + 1, player.posZ);

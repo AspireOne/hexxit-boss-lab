@@ -13,6 +13,7 @@ Run commands from the repository root in PowerShell:
 | `.\lab.ps1 play` | Apply and launch **Hexxit Boss Lab** through Prism. Select **Kratom - Boss Lab**. |
 | `.\lab.ps1 smoke` | Apply, install the separate harness, and run two automated game sessions. |
 | `.\lab.ps1 smoke-boss` | Run combat integration in two game sessions, then restore the exact pre-test lab save. |
+| `.\lab.ps1 smoke-practice` | Test in-game retry and real death/respawn recovery, then restore the pre-test lab save. |
 | `.\lab.ps1 reset-world` | Snapshot current lab progress and restore the original lab baseline. |
 | `.\lab.ps1 rollback` | Restore the previous deployed mod artifact. This does not restore the world. |
 

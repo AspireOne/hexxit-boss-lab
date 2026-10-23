@@ -37,7 +37,7 @@ import net.minecraftforge.event.entity.living.LivingAttackEvent;
 @Mod(
     modid = "hexxitlabharness",
     name = "Boss Lab Smoke Harness",
-    version = "0.3.0",
+    version = "0.4.0",
     dependencies = "required-after:hexxitbosslab")
 public final class SmokeHarness {
   private static final String WORLD = "Kratom - Boss Lab";
@@ -57,6 +57,7 @@ public final class SmokeHarness {
   private EntityLiving target;
   private File gameDirectory;
   private SovereignScenario sovereign;
+  private PracticeScenario practice;
   private boolean clientOptionsSaved;
   private boolean originalPauseOnLostFocus;
 
@@ -88,6 +89,8 @@ public final class SmokeHarness {
       sovereign =
           new SovereignScenario(
               request.getProperty("run"), request.getProperty("phase"), gameDirectory);
+    } else if ("practice".equals(scenario)) {
+      practice = new PracticeScenario(request.getProperty("phase"));
     } else if (!"target".equals(scenario)) {
       throw new IllegalArgumentException("Unknown smoke scenario");
     }
@@ -117,6 +120,12 @@ public final class SmokeHarness {
     if (serverTicks > 2400) {
       throw new IllegalStateException(
           "Timed out waiting for client entity synchronization at step " + step);
+    }
+    if (practice != null) {
+      if (practice.tick(server, player)) {
+        complete(server);
+      }
+      return;
     }
     if (sovereign != null) {
       if (sovereign.tick(server, player)) {
@@ -292,6 +301,9 @@ public final class SmokeHarness {
         }
         if (sovereign != null) {
           sovereign.observe(minecraft);
+        }
+        if (practice != null) {
+          practice.observe(minecraft);
         }
         if (finished && !resultWritten) {
           MinecraftServer server = minecraft.getIntegratedServer();

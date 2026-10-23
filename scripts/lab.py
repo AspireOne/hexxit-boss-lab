@@ -383,7 +383,7 @@ def smoke(scenario='target'):
     write_json(run / 'environment.json', fingerprint())
     world = TARGET / 'minecraft/saves' / WORLD
     snapshot = run / 'world-before'
-    if scenario == 'sovereign':
+    if scenario in ('sovereign', 'practice'):
         ensure_stopped()
         require_child(world, TARGET / 'minecraft/saves')
         shutil.copytree(world, snapshot)
@@ -454,7 +454,7 @@ def smoke(scenario='target'):
             print('Close the failed lab game, then run apply to remove the test harness.', file=sys.stderr)
         else:
             (TARGET / 'minecraft/mods' / HARNESS_FILE).unlink(missing_ok=True)
-            if scenario == 'sovereign':
+            if scenario in ('sovereign', 'practice'):
                 if tree_hashes(snapshot) != read_json(run / 'world-before-hashes.json'):
                     raise RuntimeError('Combat snapshot changed; refusing restoration')
                 restore_smoke_world(snapshot, world, run)
@@ -480,7 +480,7 @@ def operation_lock():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['setup', 'check', 'build', 'apply', 'play', 'smoke', 'smoke-boss', 'reset-world', 'rollback'])
+    parser.add_argument('command', choices=['setup', 'check', 'build', 'apply', 'play', 'smoke', 'smoke-boss', 'smoke-practice', 'reset-world', 'rollback'])
     command = parser.parse_args().command
     with operation_lock():
         if command == 'setup':
@@ -498,6 +498,8 @@ def main():
             smoke()
         elif command == 'smoke-boss':
             smoke('sovereign')
+        elif command == 'smoke-practice':
+            smoke('practice')
         elif command == 'reset-world':
             reset_world()
         elif command == 'rollback':

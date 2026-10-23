@@ -15,7 +15,7 @@ plugins {
 apply plugin: 'agency.highlysuspect.voldeloom'
 
 group = 'dev.hexxitlab'
-version = '0.3.0'
+version = '0.4.0'
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(11)
 
