@@ -12,6 +12,8 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
+import net.minecraft.potion.Potion;
+import net.minecraft.potion.PotionEffect;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.DamageSource;
 import net.minecraft.world.World;
@@ -70,8 +72,10 @@ final class PracticeScenario {
         player.getFoodStats().setFoodLevel(20);
         player.getFoodStats().setFoodSaturationLevel(5);
         player.inventory.currentItem = 0;
+        player.addPotionEffect(new PotionEffect(Potion.waterBreathing.id, 12000, 0));
         expected = new NBTTagCompound();
         player.writeEntityToNBT(expected);
+        expected = (NBTTagCompound) expected.copy();
         require(expected.getTagList("Inventory").tagCount() > 10, "Real copied equipment required");
         expected.setDouble("X", x);
         expected.setDouble("Y", y);
@@ -171,6 +175,13 @@ final class PracticeScenario {
         player.getFoodStats().getFoodLevel() == expected.getInteger("foodLevel"),
         "Hunger must match checkpoint");
     require(
+        player.getFoodStats().getSaturationLevel() == expected.getFloat("foodSaturationLevel"),
+        "Saturation must match checkpoint");
+    require(
+        player.inventory.currentItem == expected.getInteger("SelectedItemSlot"),
+        "Held slot must match checkpoint");
+    require(player.isPotionActive(Potion.waterBreathing), "Checkpoint effects must be restored");
+    require(
         player.experienceLevel == expected.getInteger("XpLevel")
             && player.experienceTotal == expected.getInteger("XpTotal"),
         "Experience must match checkpoint");
@@ -185,7 +196,10 @@ final class PracticeScenario {
     ItemStack sword = player.inventory.mainInventory[0];
     if (sword != null) {
       sword.setItemDamage(sword.getItemDamage() + 10);
+      sword.getTagCompound().setBoolean("PracticeMutation", true);
     }
+    player.inventory.currentItem = 4;
+    player.clearActivePotions();
     player.inventory.mainInventory[5] = null;
     player.inventory.armorInventory[0] = null;
     player.experienceLevel = 0;
@@ -223,6 +237,8 @@ final class PracticeScenario {
                   .inventory
                   .writeToNBT(new NBTTagList("Inventory"))
                   .equals(expected.getTagList("Inventory"))
+              && minecraft.thePlayer.inventory.currentItem
+                  == expected.getInteger("SelectedItemSlot")
               && minecraft.thePlayer.getDistanceSq(x, y, z) < 1;
     }
   }

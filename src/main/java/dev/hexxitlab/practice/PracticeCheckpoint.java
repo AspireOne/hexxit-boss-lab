@@ -10,6 +10,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
+import net.minecraft.network.packet.Packet16BlockItemSwitch;
 import net.minecraft.network.packet.Packet43Experience;
 import net.minecraft.potion.PotionEffect;
 import net.minecraft.server.MinecraftServer;
@@ -48,7 +49,8 @@ public final class PracticeCheckpoint implements ITickHandler {
     NBTTagCompound character = new NBTTagCompound();
     // Entity's ForgeData wrapper is intentionally excluded: embedding it would nest checkpoints.
     player.writeEntityToNBT(character);
-    checkpoint.setCompoundTag("Character", character);
+    // ItemStack serialization retains live tag references, including backpack contents.
+    checkpoint.setCompoundTag("Character", (NBTTagCompound) character.copy());
     checkpoint.setInteger("Version", VERSION);
     checkpoint.setInteger("MaxHealth", player.getMaxHealth());
     checkpoint.setInteger("Dimension", player.dimension);
@@ -132,6 +134,8 @@ public final class PracticeCheckpoint implements ITickHandler {
         checkpoint.getFloat("Pitch"));
     player.sendPlayerAbilities();
     player.mcServer.getConfigurationManager().syncPlayerInventory(player);
+    player.playerNetServerHandler.sendPacketToPlayer(
+        new Packet16BlockItemSwitch(player.inventory.currentItem));
     player.playerNetServerHandler.sendPacketToPlayer(
         new Packet43Experience(player.experience, player.experienceTotal, player.experienceLevel));
     player.setPlayerHealthUpdated();
