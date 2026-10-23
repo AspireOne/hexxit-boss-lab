@@ -19,9 +19,13 @@ import net.minecraft.potion.PotionEffect;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.DamageSource;
 import net.minecraft.world.World;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.EventPriority;
+import net.minecraftforge.event.ForgeSubscribe;
+import net.minecraftforge.event.entity.player.PlayerDropsEvent;
 
 /** Real network respawn, Forge cloning, disk persistence, inventory and client synchronization. */
-final class PracticeScenario {
+public final class PracticeScenario {
   private static final String EXPECTED = "BossLabPracticeExpected";
   private final boolean reload;
   private volatile int stage;
@@ -37,15 +41,28 @@ final class PracticeScenario {
   private double y;
   private double z;
   private final Set<Integer> existingDrops = new HashSet<Integer>();
+  private int suppressedDeaths;
 
   PracticeScenario(String phase) {
     reload = "reload".equals(phase);
+    MinecraftForge.EVENT_BUS.register(this);
+  }
+
+  @ForgeSubscribe(priority = EventPriority.LOWEST, receiveCanceled = true)
+  public void verifyDeathDrops(PlayerDropsEvent event) {
+    if (event.entityPlayer == corpse) {
+      require(
+          event.isCanceled() && event.drops.isEmpty(),
+          "Practice death must cancel and clear the actual drop event");
+      suppressedDeaths++;
+    }
   }
 
   boolean tick(MinecraftServer server, EntityPlayerMP player) {
     ticks++;
     if (stage == 0) {
       player.worldObj.difficultySetting = 2;
+      player.worldObj.getGameRules().setOrCreateGameRule("keepInventory", "false");
       if (reload) {
         require(PracticeCheckpoint.exists(player), "Checkpoint must survive restart");
         expected =
@@ -135,11 +152,13 @@ final class PracticeScenario {
         return false;
       }
       assertCharacter(player);
+      require(suppressedDeaths == deaths + 1, "Each real death must suppress its drop event");
       require(
           bosses(player.worldObj) == 0,
           "Automatic respawn must remove the previous attempt's boss");
       for (Object value : player.worldObj.loadedEntityList) {
-        if (value instanceof EntityItem || value instanceof EntityXPOrb) {
+        if (value instanceof EntityXPOrb
+            || value instanceof EntityItem && checkpointItem((EntityItem) value)) {
           Entity entity = (Entity) value;
           require(
               entity.isDead
@@ -184,6 +203,16 @@ final class PracticeScenario {
       return true;
     }
     require(ticks < 400, "Practice scenario timed out at stage " + stage);
+    return false;
+  }
+
+  private boolean checkpointItem(EntityItem item) {
+    NBTTagList inventory = expected.getTagList("Inventory");
+    for (int i = 0; i < inventory.tagCount(); i++) {
+      if (((NBTTagCompound) inventory.tagAt(i)).getShort("id") == item.getEntityItem().itemID) {
+        return true;
+      }
+    }
     return false;
   }
 
