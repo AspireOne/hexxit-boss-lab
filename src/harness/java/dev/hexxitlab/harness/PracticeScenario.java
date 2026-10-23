@@ -100,6 +100,9 @@ final class PracticeScenario {
     }
     if (stage == 1) {
       damageEquipment(player);
+      // Die with experience to exercise orb suppression, not just XP restoration from zero.
+      player.experienceLevel = expected.getInteger("XpLevel");
+      player.experienceTotal = expected.getInteger("XpTotal");
       for (int i = 0; i < player.inventory.mainInventory.length; i++) {
         ItemStack item = player.inventory.mainInventory[i];
         if (item != null && item.getItem().getClass().getSimpleName().equals("PhoenixFeather")) {
