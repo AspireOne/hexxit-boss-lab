@@ -3,6 +3,8 @@ package dev.hexxitlab.harness;
 import dev.hexxitlab.BossLab;
 import dev.hexxitlab.practice.PracticeCheckpoint;
 import dev.hexxitlab.sovereign.Sovereign;
+import java.util.HashSet;
+import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.item.EntityItem;
@@ -34,6 +36,7 @@ final class PracticeScenario {
   private double x;
   private double y;
   private double z;
+  private final Set<Integer> existingDrops = new HashSet<Integer>();
 
   PracticeScenario(String phase) {
     reload = "reload".equals(phase);
@@ -110,6 +113,12 @@ final class PracticeScenario {
         }
       }
       corpse = player;
+      existingDrops.clear();
+      for (Object value : player.worldObj.loadedEntityList) {
+        if (value instanceof EntityItem || value instanceof EntityXPOrb) {
+          existingDrops.add(Integer.valueOf(((Entity) value).entityId));
+        }
+      }
       requestRespawn = true;
       respawnSent = clientRestored = false;
       player.hurtResistantTime = 0;
@@ -133,7 +142,9 @@ final class PracticeScenario {
         if (value instanceof EntityItem || value instanceof EntityXPOrb) {
           Entity entity = (Entity) value;
           require(
-              entity.isDead || entity.getDistanceSq(x, y, z) > 400,
+              entity.isDead
+                  || existingDrops.contains(Integer.valueOf(entity.entityId))
+                  || entity.getDistanceSq(x, y, z) > 400,
               "Practice death must not leave duplicate live drops: "
                   + entity.getClass().getName()
                   + (entity instanceof EntityItem
