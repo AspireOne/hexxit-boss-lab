@@ -12,7 +12,8 @@ Run commands from the repository root in PowerShell:
 | `.\lab.ps1 apply` | Build and install into the marked lab. Preserve the previous artifact. |
 | `.\lab.ps1 play` | Apply and launch **Hexxit Boss Lab** through Prism. Select **Kratom - Boss Lab**. |
 | `.\lab.ps1 smoke` | Apply, install the separate harness, and run two automated game sessions. |
-| `.\lab.ps1 smoke-boss` | Run combat integration in two game sessions, then restore the exact pre-test lab save. |
+| `.\lab.ps1 smoke-boss` | Run Sovereign combat integration in two game sessions, then restore the exact pre-test lab save. |
+| `.\lab.ps1 smoke-warden` | Run Warden combat integration in two game sessions, then restore the exact pre-test lab save. |
 | `.\lab.ps1 smoke-practice` | Test in-game retry and real death/respawn recovery, then restore the pre-test lab save. |
 | `.\lab.ps1 reset-world` | Snapshot current lab progress and restore the original lab baseline. |
 | `.\lab.ps1 rollback` | Restore the previous deployed mod artifact. This does not restore the world. |
@@ -97,6 +98,6 @@ Use the Computer Use skill's `@oai/sky` Windows API for additional visual inspec
 
 The test establishes registration, synchronization, damage, persistence, and cleanup compatibility with this installed modpack. It does not establish boss balance, enjoyable combat, or dedicated-server support.
 
-The [Sovereign guide](../sovereign/README.md) documents the boss and its separate combat scenario. Unlike the original target smoke, combat smoke snapshots and restores the current lab save, including player inventory, capabilities, and progress.
+The [Sovereign](../sovereign/README.md) and [Warden](../warden/README.md) guides document each boss and its combat scenario; [practice rematches](../practice/README.md) have their own guide. Unlike the original target smoke, combat and practice smoke snapshot and restore the current lab save, including player inventory, capabilities, and progress.
 
 See [the foundation verification record](verification.md) for the completed acceptance run and the legacy integration requirements it established.

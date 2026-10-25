@@ -2,6 +2,7 @@ package dev.hexxitlab;
 
 import dev.hexxitlab.practice.PracticeCheckpoint;
 import dev.hexxitlab.sovereign.Sovereign;
+import dev.hexxitlab.warden.Warden;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommand;
 import net.minecraft.command.ICommandSender;
@@ -24,7 +25,7 @@ public final class LabCommand extends CommandBase {
 
   @Override
   public String getCommandUsage(ICommandSender sender) {
-    return "/bosslab spawn|sovereign|retry|practice-off|status|clear";
+    return "/bosslab spawn|sovereign|warden|retry|practice-off|status|clear";
   }
 
   @Override
@@ -52,7 +53,7 @@ public final class LabCommand extends CommandBase {
       processCommand(player, new String[] {PracticeCheckpoint.kind(player)});
       return;
     }
-    if ("sovereign".equals(args[0])) {
+    if ("sovereign".equals(args[0]) || "warden".equals(args[0])) {
       summon(player, args[0]);
     } else if ("spawn".equals(args[0])) {
       LabTarget target = new LabTarget(world);
@@ -98,9 +99,19 @@ public final class LabCommand extends CommandBase {
       }
     }
     double yaw = Math.toRadians(player.rotationYaw);
-    Entity boss = new Sovereign(world);
-    boss.setPosition(
-        player.posX - Math.sin(yaw) * 18, player.posY + 5, player.posZ + Math.cos(yaw) * 18);
+    Entity boss;
+    if ("warden".equals(kind)) {
+      // A grounded duelist starts on the surface ahead, facing the player.
+      double x = player.posX - Math.sin(yaw) * 12;
+      double z = player.posZ + Math.cos(yaw) * 12;
+      boss = new Warden(world);
+      boss.setLocationAndAngles(
+          x, Warden.groundBelow(world, x, player.posY + 6, z), z, player.rotationYaw + 180, 0);
+    } else {
+      boss = new Sovereign(world);
+      boss.setPosition(
+          player.posX - Math.sin(yaw) * 18, player.posY + 5, player.posZ + Math.cos(yaw) * 18);
+    }
     if (!world.spawnEntityInWorld(boss)) {
       throw new IllegalStateException(kind + " spawn rejected");
     }

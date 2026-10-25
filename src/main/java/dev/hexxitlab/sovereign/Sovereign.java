@@ -73,6 +73,8 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData, L
     noClip = true;
     experienceValue = 150;
     renderDistanceWeight = 8;
+    // Warnings extend far beyond the body; keep drawing them when the body is off-screen.
+    ignoreFrustumCheck = true;
     texture = "/mob/enderman.png";
   }
 

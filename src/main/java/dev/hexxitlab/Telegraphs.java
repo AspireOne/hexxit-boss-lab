@@ -42,12 +42,14 @@ public final class Telegraphs {
     int segments = (int) Math.ceil(SEGMENTS * arc / 180);
     GL11.glDisable(GL11.GL_CULL_FACE);
     // Translucent fill shows the whole danger area; the outline marks its exact edge.
-    GL11.glColor4f(rgba[0], rgba[1], rgba[2], rgba[3] * 0.35F);
+    GL11.glColor4f(rgba[0], rgba[1], rgba[2], rgba[3] * 0.55F);
     GL11.glBegin(GL11.GL_TRIANGLE_FAN);
     GL11.glVertex3d(0, 0, 0);
     groundEdge(yaw, arc, radius, segments);
     GL11.glEnd();
     GL11.glColor4f(rgba[0], rgba[1], rgba[2], rgba[3]);
+    // Ground shapes are seen edge-on from eye height, so their outline needs extra weight.
+    GL11.glLineWidth(4);
     GL11.glBegin(GL11.GL_LINE_LOOP);
     if (wedge) {
       GL11.glVertex3d(0, 0, 0);

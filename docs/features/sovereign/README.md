@@ -8,19 +8,9 @@ Run `.\lab.ps1 play`, open **Kratom - Boss Lab**, and choose Easy, Normal, or Ha
 
 - `/bosslab status`: health, phase, action, and loaded lab entity count.
 - `/bosslab clear`: immediately remove loaded lab bosses and practice targets in this dimension, without rewards.
-- `/bosslab retry`: restore the character checkpoint and start a fresh Sovereign attempt.
-- `/bosslab practice-off`: discard the character checkpoint and return to normal death/drop behaviour.
 - `/bosslab spawn`: summon the original harmless practice target.
 
-Only one Sovereign can be summoned per loaded dimension. It does not spawn naturally. The original instance and saves are never used for deployment.
-
-## Quick rematches
-
-Summoning automatically saves your character at the starting position. After dying, click **Respawn**: the previous attempt's boss is removed and your inventory, armour, item durability and NBT (including backpack contents), health, hunger, experience, effects, and flight abilities return to that checkpoint. Use `/bosslab retry` when ready for the rematch, or use it while alive to restart an attempt. Each new summon replaces the checkpoint with your current starting state. Phoenix Feathers still work normally during combat.
-
-This is a character reset, not a world rewind. Terrain, containers, dropped projectiles, and other entities retain their current state. The checkpoint remains active until `/bosslab practice-off`, including after `/bosslab clear`; turn practice off before unrelated adventuring. Do not transfer or deliberately drop checkpoint items into the world and then retry: practice recovery restores your starting inventory. Death drops and death experience orbs are suppressed so dying itself does not duplicate supplies.
-
-Checkpoints survive quitting, restarting Minecraft, and replacing the mod during iteration. Forge's `PlayerPersisted` data carries them across respawn; snapshots exclude that wrapper to avoid recursively nesting earlier checkpoints. Restoration waits until the new player exists on the server, then synchronizes inventory, abilities, position, health, and experience. The original source save remains untouched.
+Summoning saves a character checkpoint for [quick rematches](../practice/README.md) with `/bosslab retry`. Only one lab boss, Sovereign or [Warden](../warden/README.md), can be loaded per dimension. It does not spawn naturally. The original instance and saves are never used for deployment.
 
 ## Fight
 
@@ -47,8 +37,6 @@ A player kill awards one Nether Star and 150 experience through normal loot hand
 Production behaviour and rendering live in the `sovereign` feature package. Combat is server-owned; health, action, timer, and locked geometry synchronize through the legacy DataWatcher. Combat constants are the tuning surface; there is no separate encounter framework or configuration UI.
 
 Run `.\lab.ps1 smoke` for the original foundation scenario and `.\lab.ps1 smoke-boss` for combat integration. Close Minecraft first and leave the game untouched while the harness runs.
-
-`.\lab.ps1 smoke-practice` tests live retry, two real deaths and client Respawn requests, exact equipment restoration, absence of duplicate death drops, client synchronization, persistence across a restart, and opting out. It uses the same full-save snapshot and restoration as combat smoke.
 
 The combat scenario takes a complete snapshot of the current lab save before launching. It exercises real sword and Crystal Bow attacks; lance, rush, and blast hits; dodges and cover; enchanted armour and Phoenix Feather resurrection; phase thresholds; disengagement recovery; client synchronization; save/reload; loot; Peaceful; and administrative cleanup. Circling regressions exercise clockwise close movement, counterclockwise wider movement, a vertical orbit, and escaping after the blast warning, with unconstrained boss pursuit. Geometry probes cancel damage at the Forge boundary after observing delivery. Equipment probes allow damage through the real mod pipeline.
 

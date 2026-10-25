@@ -30,6 +30,8 @@ GAME_PROCESSES = {'java.exe', 'javaw.exe', 'prismlauncher.exe'}
 # Covers Prism startup and Minecraft window creation; later focus changes are the developer's.
 FOCUS_GUARD_SECONDS = 90
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+# Scenarios that change player state or progress run on a snapshot restored afterwards.
+RESTORED_SCENARIOS = ('sovereign', 'warden', 'practice')
 PROCESS_CHECK = """
 $ErrorActionPreference = 'Stop'
 try {
@@ -452,7 +454,7 @@ def smoke(scenario='target'):
     write_json(run / 'environment.json', fingerprint())
     world = TARGET / 'minecraft/saves' / WORLD
     snapshot = run / 'world-before'
-    if scenario in ('sovereign', 'practice'):
+    if scenario in RESTORED_SCENARIOS:
         ensure_stopped()
         require_child(world, TARGET / 'minecraft/saves')
         shutil.copytree(world, snapshot)
@@ -526,7 +528,7 @@ def smoke(scenario='target'):
             print('Close the failed lab game, then run apply to remove the test harness.', file=sys.stderr)
         else:
             (TARGET / 'minecraft/mods' / HARNESS_FILE).unlink(missing_ok=True)
-            if scenario in ('sovereign', 'practice'):
+            if scenario in RESTORED_SCENARIOS:
                 if tree_hashes(snapshot) != read_json(run / 'world-before-hashes.json'):
                     raise RuntimeError('Combat snapshot changed; refusing restoration')
                 restore_smoke_world(snapshot, world, run)
@@ -552,7 +554,7 @@ def operation_lock():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['setup', 'check', 'build', 'apply', 'play', 'smoke', 'smoke-boss', 'smoke-practice', 'reset-world', 'rollback'])
+    parser.add_argument('command', choices=['setup', 'check', 'build', 'apply', 'play', 'smoke', 'smoke-boss', 'smoke-warden', 'smoke-practice', 'reset-world', 'rollback'])
     command = parser.parse_args().command
     with operation_lock():
         if command == 'setup':
@@ -570,6 +572,8 @@ def main():
             smoke()
         elif command == 'smoke-boss':
             smoke('sovereign')
+        elif command == 'smoke-warden':
+            smoke('warden')
         elif command == 'smoke-practice':
             smoke('practice')
         elif command == 'reset-world':

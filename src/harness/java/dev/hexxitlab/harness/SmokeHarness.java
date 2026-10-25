@@ -37,7 +37,7 @@ import net.minecraftforge.event.entity.living.LivingAttackEvent;
 @Mod(
     modid = "hexxitlabharness",
     name = "Boss Lab Smoke Harness",
-    version = "0.4.0",
+    version = "0.5.0",
     dependencies = "required-after:hexxitbosslab")
 public final class SmokeHarness {
   private static final String WORLD = "Kratom - Boss Lab";
@@ -59,6 +59,7 @@ public final class SmokeHarness {
   private EntityLiving target;
   private File gameDirectory;
   private SovereignScenario sovereign;
+  private WardenScenario warden;
   private PracticeScenario practice;
   private boolean clientOptionsSaved;
   private boolean originalPauseOnLostFocus;
@@ -91,6 +92,10 @@ public final class SmokeHarness {
     if ("sovereign".equals(scenario)) {
       sovereign =
           new SovereignScenario(
+              request.getProperty("run"), request.getProperty("phase"), gameDirectory);
+    } else if ("warden".equals(scenario)) {
+      warden =
+          new WardenScenario(
               request.getProperty("run"), request.getProperty("phase"), gameDirectory);
     } else if ("practice".equals(scenario)) {
       practice = new PracticeScenario(request.getProperty("phase"));
@@ -132,6 +137,12 @@ public final class SmokeHarness {
     }
     if (sovereign != null) {
       if (sovereign.tick(server, player)) {
+        complete(server);
+      }
+      return;
+    }
+    if (warden != null) {
+      if (warden.tick(server, player)) {
         complete(server);
       }
       return;
@@ -258,6 +269,10 @@ public final class SmokeHarness {
             sovereign.render(minecraft);
             return;
           }
+          if (warden != null) {
+            warden.render(minecraft);
+            return;
+          }
           if (step == 2 && observedHealth == 33 && !imageSaved && minecraft.theWorld != null) {
             Entity entity = minecraft.theWorld.getEntityByID(targetId);
             if (entity != null && minecraft.thePlayer != null) {
@@ -308,6 +323,9 @@ public final class SmokeHarness {
         }
         if (sovereign != null) {
           sovereign.observe(minecraft);
+        }
+        if (warden != null) {
+          warden.observe(minecraft);
         }
         if (practice != null) {
           practice.observe(minecraft);

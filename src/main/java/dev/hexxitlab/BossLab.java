@@ -11,10 +11,12 @@ import cpw.mods.fml.common.registry.TickRegistry;
 import cpw.mods.fml.relauncher.Side;
 import dev.hexxitlab.practice.PracticeCheckpoint;
 import dev.hexxitlab.sovereign.Sovereign;
+import dev.hexxitlab.warden.Cinder;
+import dev.hexxitlab.warden.Warden;
 import java.util.logging.Logger;
 import net.minecraftforge.common.MinecraftForge;
 
-@Mod(modid = BossLab.MOD_ID, name = "Hexxit Boss Lab", version = "0.4.0")
+@Mod(modid = BossLab.MOD_ID, name = "Hexxit Boss Lab", version = "0.5.0")
 @NetworkMod(clientSideRequired = true, serverSideRequired = true)
 public final class BossLab {
   public static final String MOD_ID = "hexxitbosslab";
@@ -28,6 +30,8 @@ public final class BossLab {
     LOGGER.setParent(FMLLog.getLogger());
     EntityRegistry.registerModEntity(LabTarget.class, "LabTarget", 1, this, 80, 1, true);
     EntityRegistry.registerModEntity(Sovereign.class, "Sovereign", 2, this, 160, 1, true);
+    EntityRegistry.registerModEntity(Warden.class, "Warden", 3, this, 160, 1, true);
+    EntityRegistry.registerModEntity(Cinder.class, "Cinder", 4, this, 80, 1, true);
     MinecraftForge.EVENT_BUS.register(new TargetDrops());
     if (Boolean.getBoolean("hexxitlab.enabled")) {
       PracticeCheckpoint practice = new PracticeCheckpoint();
