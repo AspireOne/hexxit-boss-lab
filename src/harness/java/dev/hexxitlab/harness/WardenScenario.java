@@ -47,6 +47,7 @@ public final class WardenScenario {
   private static final int PROBE_DAMAGE = 20;
   private static final int FRAMING_FRAMES = 6;
   private static final int ARROW_DAMAGE = 24;
+  private static final int HOTBAR_SIZE = 9;
   private static final double SNIPER_DISTANCE = Warden.HOOK_RANGE + 4;
   // A player's walking speed in blocks per tick.
   private static final double WALK = 0.216;
@@ -56,7 +57,7 @@ public final class WardenScenario {
 
   /**
    * One attack and the player's scripted answer when its warning locks: a move in the Warden's
-   * frame at the commit, or reversing the combo's steady movement.
+   * frame at the commit, reversing the combo's steady movement, or stopping and stepping aside.
    */
   private static final class Step {
     final Warden.Action action;
@@ -66,13 +67,14 @@ public final class WardenScenario {
     final double up;
     final int windup;
     final boolean reverse;
+    final boolean sidestep;
 
     Step(Warden.Action action) {
-      this(action, false, 0, 0, 0, 0, false);
+      this(action, false, 0, 0, 0, 0, false, false);
     }
 
     Step(Warden.Action action, double forward, double side, double up) {
-      this(action, true, forward, side, up, 0, false);
+      this(action, true, forward, side, up, 0, false, false);
     }
 
     Step(
@@ -82,7 +84,8 @@ public final class WardenScenario {
         double side,
         double up,
         int windup,
-        boolean reverse) {
+        boolean reverse,
+        boolean sidestep) {
       this.action = action;
       this.move = move;
       this.forward = forward;
@@ -90,10 +93,16 @@ public final class WardenScenario {
       this.up = up;
       this.windup = windup;
       this.reverse = reverse;
+      this.sidestep = sidestep;
     }
 
     static Step reversing(Warden.Action action) {
-      return new Step(action, false, 0, 0, 0, 0, true);
+      return new Step(action, false, 0, 0, 0, 0, true, false);
+    }
+
+    /** Stops moving and steps sideways across the locked strike, from wherever the player is. */
+    static Step sidestepping(Warden.Action action, double side) {
+      return new Step(action, false, 0, side, 0, 0, false, true);
     }
   }
 
@@ -177,11 +186,38 @@ public final class WardenScenario {
         Warden.BACKHAND_DAMAGE,
         Warden.SLAM_DAMAGE),
     new Combo("leap-hit", 1, 18, 0, new Step[] {new Step(Warden.Action.LEAP)}, Warden.LEAP_DAMAGE),
-    new Combo("leap-dodge", 1, 18, 0, new Step[] {new Step(Warden.Action.LEAP, 18, 7, 0)}),
+    // A missed Leap throws the Chain Hook after the player instead of leaving an opening.
+    new Combo(
+        "leap-dodge",
+        1,
+        18,
+        0,
+        new Step[] {new Step(Warden.Action.LEAP, 18, 7, 0), new Step(Warden.Action.HOOK, 7, 4, 0)}),
     new Combo("leap-kite", 1, 15, 0, new Step[] {new Step(Warden.Action.LEAP)}, Warden.LEAP_DAMAGE)
         .moving(0, 0, WALK),
-    new Combo("leap-kite-reverse", 1, 15, 0, new Step[] {Step.reversing(Warden.Action.LEAP)})
+    new Combo(
+            "leap-kite-reverse",
+            1,
+            15,
+            0,
+            // Reversing put the player in line behind the landing, so the chain needs a sidestep.
+            new Step[] {
+              Step.reversing(Warden.Action.LEAP), Step.sidestepping(Warden.Action.HOOK, 4)
+            })
         .moving(0, 0, WALK),
+    // Teleporting back to the takeoff point while it flies.
+    new Combo(
+        "leap-teleport",
+        1,
+        15,
+        0,
+        new Step[] {
+          new Step(Warden.Action.LEAP, -3, 0, 0),
+          new Step(Warden.Action.HOOK),
+          new Step(Warden.Action.SLAM)
+        },
+        Warden.HOOK_DAMAGE,
+        Warden.SLAM_DAMAGE),
     // Backing away from the Chain Hook stays in its line.
     new Combo(
             "kite-hook",
@@ -208,7 +244,14 @@ public final class WardenScenario {
         0,
         new Step[] {
           new Step(
-              Warden.Action.CLEAVE, false, 0, 0, 0, Warden.windup(Warden.Action.CLEAVE, 3), false),
+              Warden.Action.CLEAVE,
+              false,
+              0,
+              0,
+              0,
+              Warden.windup(Warden.Action.CLEAVE, 3),
+              false,
+              false),
           new Step(Warden.Action.CLEAVE),
           new Step(Warden.Action.CLEAVE),
           new Step(Warden.Action.SLAM)
@@ -381,8 +424,8 @@ public final class WardenScenario {
     // A projectile is judged where it strikes: the shooter stands in front for both arrows.
     placePlayer(FRONT, 0, 0);
     require(
-        damageTaken(arrowAt(world, FRONT), ARROW_DAMAGE) == Warden.guarded(ARROW_DAMAGE),
-        "Arrows striking the front must be guarded");
+        damageTaken(arrowAt(world, FRONT), ARROW_DAMAGE) == 0,
+        "The shield must stop arrows striking the front");
     require(
         damageTaken(arrowAt(world, -FRONT), ARROW_DAMAGE) == ARROW_DAMAGE,
         "Arrows striking the back must land in full");
@@ -399,6 +442,7 @@ public final class WardenScenario {
     int guarded = swing();
     require(guarded * 2 < full, "Real weapon: front " + guarded + " vs back " + full);
     BossLab.LOGGER.info("Warden equipment: weapon back=" + full + " front=" + guarded);
+    require(boss.getPosture() == 0, "Hits outside its openings must not build posture");
     BossLab.LOGGER.info("Warden combat PASS: guard");
   }
 
@@ -470,6 +514,13 @@ public final class WardenScenario {
         driftX = -driftX;
         driftZ = -driftZ;
       }
+      if (pending.sidestep) {
+        double yaw = Math.toRadians(boss.getStrikeYaw());
+        playerX -= Math.cos(yaw) * pending.side;
+        playerZ += -Math.sin(yaw) * pending.side;
+        orbit = driftX = driftZ = 0;
+        pinPlayer();
+      }
       pending = null;
     }
     if (step > 0 && action != Warden.Action.REEL) {
@@ -487,6 +538,7 @@ public final class WardenScenario {
         require(
             damageTaken(DamageSource.causePlayerDamage(player), PROBE_DAMAGE) == PROBE_DAMAGE,
             "Finisher recovery must drop the guard");
+        posture(world);
       }
       if (combo.steps[0].action == Warden.Action.LEAP
           && !combo.steps[0].move
@@ -508,6 +560,24 @@ public final class WardenScenario {
       }
     }
     require(ticks < CASE_LIMIT, combo.name + ": timed out at " + action);
+  }
+
+  /** Clean hits in a recovery fill posture; the break staggers it, open to heavier blows. */
+  private void posture(World world) {
+    require(boss.getPosture() == PROBE_DAMAGE, "Recovery hits must build posture");
+    boss.hurtResistantTime = 0;
+    boss.attackEntityFrom(DamageSource.causePlayerDamage(player), Warden.POSTURE_LIMIT);
+    require(
+        boss.getAction() == Warden.Action.STAGGER && boss.getPosture() == 0,
+        "A full posture bar must stagger the Warden");
+    int heavier = Math.round(PROBE_DAMAGE * Warden.STAGGER_MULTIPLIER);
+    require(
+        damageTaken(DamageSource.causePlayerDamage(player), PROBE_DAMAGE) == heavier,
+        "A staggered Warden must take heavier blows");
+    require(
+        damageTaken(arrowAt(world, FRONT), PROBE_DAMAGE) == heavier,
+        "A staggered Warden must not shield arrows");
+    BossLab.LOGGER.info("Warden combat PASS: posture-break");
   }
 
   private void moveSteadily() {
@@ -736,15 +806,25 @@ public final class WardenScenario {
     return taken;
   }
 
-  /** The copied character's loadout changes between sessions; use its strongest hotbar item. */
+  /**
+   * The copied character's loadout changes between sessions: wield its strongest item, moved into
+   * the hotbar if needed. The player's inventory is restored afterwards.
+   */
   private int bestWeapon() {
+    ItemStack[] items = player.inventory.mainInventory;
     int best = 0;
-    for (int slot = 1; slot < 9; slot++) {
+    for (int slot = 1; slot < items.length; slot++) {
       if (strength(slot) > strength(best)) {
         best = slot;
       }
     }
-    require(strength(best) > 1, "A weapon is required in the hotbar");
+    require(strength(best) > 1, "A weapon is required in the inventory");
+    if (best >= HOTBAR_SIZE) {
+      ItemStack held = items[0];
+      items[0] = items[best];
+      items[best] = held;
+      best = 0;
+    }
     return best;
   }
 

@@ -29,8 +29,9 @@ Every boss must hold to these. They come from fights against this character.
 2. **Steady movement never dodges by itself.** Strikes aim where the player is heading, not where they stand, and lock only for their final moments. Circling, backing away, or strafing walks into them. Dodging means reacting when the warning locks: change direction, leave, or teleport.
 3. **Every distance and height has a threat.** Close, medium, far, above, and behind cover each need an answer. Flight and teleport mean "out of reach" is always available, so being there must not be safe.
 4. **The boss can answer from wherever it can be hurt.** If a boss cannot reach a position, it must refuse damage from there.
-5. **Every hit is fair.** Each strike has a visible warning. A locked warning never moves. The reaction window after locking is at least 8 ticks (0.4 seconds).
-6. **Long escapes reset the fight.** Leaving the fight to heal, for example through the pocket dimension, must not keep the boss's lost health.
+5. **Payoffs must be earned and felt.** A fight that is only dodge-then-poke feels flat even when it is fair. Reward good play with a visible climax, such as a posture break, and make the boss react to hits.
+6. **Every hit is fair.** Each strike has a visible warning. A locked warning never moves. The reaction window after locking is at least 8 ticks (0.4 seconds).
+7. **Long escapes reset the fight.** Leaving the fight to heal, for example through the pocket dimension, must not keep the boss's lost health.
 
 ## Known exploits
 
@@ -39,5 +40,7 @@ Check every new boss against these patterns, and add a combat-scenario regressio
 - **Orbiting:** walking a circle around a melee boss, hitting it, while every strike lands where the player was.
 - **Backpedal kiting:** walking backwards out of melee range while shooting, staying faster than the boss and outside the circles that land where the player stood.
 - **Sniping:** shooting from beyond every attack's reach, on foot or in flight.
+- **Ranged attrition:** keeping distance and shooting whenever it is safe. Even when every attack can reach the player, a bow that deals steady damage from the front turns the fight into a slow, safe grind.
+- **Teleporting into its blind spot:** for example, teleporting to where a leaping boss took off while it is still in the air, then shooting it during the recovery. Any move that ends with the boss committed and the player safe needs a follow-up threat.
 
 The [Sovereign](features/sovereign/README.md) is an earlier prototype that predates these rules. The [Warden](features/warden/README.md) applies them.

@@ -130,6 +130,9 @@ public final class WardenRenderer extends RenderLiving {
       case RECOVER:
         text = "EXPOSED";
         break;
+      case STAGGER:
+        text = "STAGGERED - strike now";
+        break;
       case KINDLE:
         text = "HARROWING - warded";
         break;
@@ -140,10 +143,15 @@ public final class WardenRenderer extends RenderLiving {
         text = "ASH NOVA - get clear";
         break;
       default:
+        // TODO: Mock - posture needs a proper visual in the art pass.
         text =
             "Ashen Warden - Phase "
                 + boss.getPhase()
-                + (boss.getPhase() == 3 ? " - guard broken" : "");
+                + (boss.getPhase() == 3 ? " - guard broken" : "")
+                + " - posture "
+                + boss.getPosture()
+                + "/"
+                + Warden.POSTURE_LIMIT;
         break;
     }
     renderLivingLabel(entity, text, x, y + 0.5, z, 96);
@@ -258,6 +266,7 @@ public final class WardenRenderer extends RenderLiving {
           shieldArm.rotateAngleX = -1.5F;
           break;
         case RECOVER:
+        case STAGGER:
           swordArm.rotateAngleX = 0.25F;
           break;
         case KINDLE:

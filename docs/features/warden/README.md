@@ -10,9 +10,13 @@ Only one lab boss can be loaded per dimension. The Warden does not spawn natural
 
 ## The guard
 
-Hits that strike its front (within 70° of where it faces) deal a quarter of their damage, with a minimum of 1. An anvil clank confirms a guarded hit. Arrows are judged by where they strike, not where you stand. Shots fired from more than 22 blocks away, the reach of its Chain Hook, glance off entirely. The guard drops completely during **EXPOSED** recoveries, and it shatters for good in phase three.
+Melee hits that strike its front (within 70° of where it faces) deal a quarter of their damage, with a minimum of 1. Its shield stops arrows striking the front completely. An anvil clank confirms a guarded hit. Arrows are judged by where they strike, not where you stand. Shots fired from more than 22 blocks away, the reach of its Chain Hook, glance off from any side. The guard drops completely while it is **EXPOSED** or **STAGGERED**, and it shatters for good in phase three.
 
-The intended rhythm: bait a strike, dodge it when its warning locks, then hit its back or punish the recovery.
+The intended rhythm: bait a strike, dodge it when its warning locks, then hit its back or punish the recovery. The bow pays only from behind or into an opening.
+
+## Posture
+
+Clean hits during its openings build posture: hits that are not guarded and land while a strike's warning is locked or during a recovery. At 240 posture it is **STAGGERED** for 4 seconds. Whatever it was winding up is cancelled, its guard is down, and it takes 1.5 times damage. Posture starts draining by 1 per tick after 5 seconds without a clean hit. Its label shows the current posture.
 
 ## Combos
 
@@ -26,7 +30,7 @@ The Warden attacks in combos. Each step is chosen from where you are at that mom
 | Leap | Last step and you are heading farther; or you are over 14 blocks away; or it has made no progress toward you for 2 seconds | Orange circle where you will be when it lands, radius 4 | 40 |
 | Chain Hook | You are more than 3 blocks above it; or you are 8 to 14 blocks away (at most every 8 seconds) | Chain corridor, up to 22 blocks | 12, then reels you in for a Slam |
 
-Every combo ends with Slam or Leap, followed by an **EXPOSED** recovery. A missed Chain Hook also leaves it exposed briefly. Rolling behind a Cleave usually earns a Backhand next, and the Slam turns to find you, so do not linger. Its sweeps and slams stop at solid cover; it never breaks terrain.
+Every combo ends with Slam or Leap, followed by an **EXPOSED** recovery. A Leap that misses earns no recovery: on landing it throws the Chain Hook straight after you, if you are in reach and in sight. Teleporting back to where it took off puts you in the chain's line; sidestep the chain when it locks. A missed Chain Hook leaves it exposed briefly. Rolling behind a Cleave usually earns a Backhand next, and the Slam turns to find you, so do not linger. Its sweeps and slams stop at solid cover; it never breaks terrain.
 
 | | Phase 1 | Phase 2 | Phase 3 |
 | --- | --- | --- | --- |
@@ -61,6 +65,6 @@ Strikes lead with a smoothed estimate of the opponent's horizontal velocity, tak
 
 The Warden walks with vanilla collision, step-up, and gravity: its AI runs in `updateEntityActionState`, which vanilla calls on the server just before travel. Leaps are scripted flights through terrain onto the first solid surface below the locked target. Bosses set `ignoreFrustumCheck`, because their warnings extend far beyond their bodies and would otherwise vanish when you look away from them.
 
-`.\lab.ps1 smoke-warden` runs the combat scenario across two launches on a temporary stone platform in daylight. It snapshots the current lab save and restores it afterwards. It checks the guard against deterministic melee and arrow damage plus a real pack weapon, and shots from beyond the hook's reach. It covers each combo branch with hits and dodges taken when the warning locks, the hook reel into a Slam, and phase-three combos and warnings. The [known exploits](../../encounter-design.md#known-exploits) each have a regression: orbiting and backing away get hit, while reversing direction at the lock escapes. The swarm cases cover Kindle warding, Cinder dive hits and dodges, Reclaim with a Cinder shot down in flight, and nova radius, hit, and escape; the shattered guard; disengagement; persistence; loot; the one-boss rule; retry; clear; and Peaceful. Geometry probes cancel boss damage at the Forge boundary after recording it. Screenshots of each warning are saved in the run directory.
+`.\lab.ps1 smoke-warden` runs the combat scenario across two launches on a temporary stone platform in daylight. It snapshots the current lab save and restores it afterwards. It checks the guard against deterministic melee and arrow damage plus a real pack weapon, and shots from beyond the hook's reach. It covers each combo branch with hits and dodges taken when the warning locks, the hook reel into a Slam, and phase-three combos and warnings. The [known exploits](../../encounter-design.md#known-exploits) each have a regression: orbiting and backing away get hit, while reversing direction at the lock escapes; teleporting to the Leap's takeoff point is hooked and slammed. Posture builds from recovery hits, and a break staggers it, with heavier blows and no arrow shield. The swarm cases cover Kindle warding, Cinder dive hits and dodges, Reclaim with a Cinder shot down in flight, and nova radius, hit, and escape; the shattered guard; disengagement; persistence; loot; the one-boss rule; retry; clear; and Peaceful. Geometry probes cancel boss damage at the Forge boundary after recording it. Screenshots of each warning are saved in the run directory.
 
 See the [verification record](verification.md) for accepted runs. Balance remains subject to human fights.

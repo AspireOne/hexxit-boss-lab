@@ -75,6 +75,12 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private static final int REEL_TICKS = 6;
   private static final int HOOK_MISS_RECOVERY = 24;
   private static final int NOVA_RECOVERY = 40;
+  // Clean hits during openings build posture; a full bar staggers it, open to heavier blows.
+  public static final int POSTURE_LIMIT = 240;
+  public static final float STAGGER_MULTIPLIER = 1.5F;
+  private static final int STAGGER_TICKS = 80;
+  // Posture drains one point per tick once it has gone this long without a clean hit.
+  private static final int POSTURE_GRACE = 100;
   private static final int STUCK_TICKS = 40;
   private static final int HOOK_COOLDOWN = 160;
   private static final int KINDLE_TICKS = 40;
@@ -115,6 +121,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private static final int STRIKE_YAW = 26;
   private static final int PHASE = 27;
   private static final int NOVA_RADIUS = 28;
+  private static final int POSTURE = 29;
 
   public enum Action {
     HUNT,
@@ -127,6 +134,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     HOOK,
     REEL,
     RECOVER,
+    STAGGER,
     KINDLE,
     RECLAIM,
     NOVA
@@ -144,6 +152,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private int raiseTimer;
   private int diveTimer;
   private int ash;
+  private int postureIdle;
   private Vec3 travelStart;
   private EntityPlayer tracked;
   private double trackedX;
@@ -176,6 +185,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     dataWatcher.addObject(STRIKE_YAW, Integer.valueOf(0));
     dataWatcher.addObject(PHASE, Integer.valueOf(1));
     dataWatcher.addObject(NOVA_RADIUS, Integer.valueOf(0));
+    dataWatcher.addObject(POSTURE, Integer.valueOf(0));
   }
 
   @Override
@@ -292,7 +302,8 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
 
   /** The guard drops during finisher recovery and is gone for good in phase three. */
   public boolean isExposed() {
-    return getPhase() == 3 || getAction() == Action.RECOVER;
+    Action action = getAction();
+    return getPhase() == 3 || action == Action.RECOVER || action == Action.STAGGER;
   }
 
   /** Whether the current strike's warning has locked, or its leap is in flight. */
@@ -373,13 +384,50 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     }
     // Projectiles are judged by where they strike, not by where the shooter stands.
     Entity striker = source.getSourceOfDamage();
-    if (!isExposed() && striker != null && Math.abs(angleTo(striker)) <= GUARD_ARC) {
-      amount = guarded(amount);
+    boolean guarding = !isExposed() && striker != null && Math.abs(angleTo(striker)) <= GUARD_ARC;
+    if (guarding) {
       if (!worldObj.isRemote) {
         playSound("random.anvil_land", 0.4F, 1.8F);
       }
+      // The shield stops shots outright: the bow pays only from behind or into an opening.
+      if (source.isProjectile()) {
+        return false;
+      }
+      amount = guarded(amount);
+    } else if (getAction() == Action.STAGGER) {
+      amount = Math.round(amount * STAGGER_MULTIPLIER);
     }
-    return super.attackEntityFrom(source, amount);
+    boolean opening = isOpening();
+    boolean landed = super.attackEntityFrom(source, amount);
+    if (landed && !guarding && opening && !worldObj.isRemote) {
+      buildPosture(amount);
+    }
+    return landed;
+  }
+
+  /** Locked windups and recoveries: the moments a clean hit builds toward a posture break. */
+  private boolean isOpening() {
+    Action action = getAction();
+    return action == Action.RECOVER || (isCommitted() && action != Action.AIRBORNE);
+  }
+
+  private void buildPosture(int amount) {
+    postureIdle = 0;
+    int posture = getPosture() + amount;
+    if (posture < POSTURE_LIMIT) {
+      dataWatcher.updateObject(POSTURE, Integer.valueOf(posture));
+      return;
+    }
+    // Breaking posture cancels whatever it was winding up.
+    dataWatcher.updateObject(POSTURE, Integer.valueOf(0));
+    changeAction(Action.STAGGER, STAGGER_TICKS);
+    playSound("random.anvil_break", 2, 0.6F);
+    playSound("mob.irongolem.death", 2, 1.4F);
+    BossLab.LOGGER.info("Warden posture broken: " + getPersistentID());
+  }
+
+  public int getPosture() {
+    return dataWatcher.getWatchableObjectInt(POSTURE);
   }
 
   @Override
@@ -439,6 +487,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
       if (++absentTicks == RESET_TICKS) {
         setEntityHealth(MAX_HEALTH);
         setPhase(1);
+        dataWatcher.updateObject(POSTURE, Integer.valueOf(0));
         dismissSwarm();
         BossLab.LOGGER.info("Warden recovered after disengagement: " + getPersistentID());
       }
@@ -451,6 +500,9 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private void tickCombat() {
     int phase = getPhase();
     observeOpponent();
+    if (++postureIdle > POSTURE_GRACE && getPosture() > 0) {
+      dataWatcher.updateObject(POSTURE, Integer.valueOf(getPosture() - 1));
+    }
     if (!isWarded()) {
       // Phase changes interrupt anything, including a leap in flight.
       if (phase == 1 && getHealth() <= KINDLE_HEALTH) {
@@ -491,6 +543,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
         reel();
         break;
       case RECOVER:
+      case STAGGER:
         if (--remaining <= 0) {
           changeAction(Action.HUNT, COOLDOWN[phase - 1]);
         }
@@ -724,8 +777,13 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
         travelStart.zCoord + (target.zCoord - travelStart.zCoord) * t);
     if (remaining <= 0) {
       setPosition(target.xCoord, target.yCoord, target.zCoord);
-      impact(target, LEAP_RADIUS, LEAP_DAMAGE);
-      changeAction(Action.RECOVER, FINISHER_RECOVERY[getPhase() - 1]);
+      boolean landed = impact(target, LEAP_RADIUS, LEAP_DAMAGE);
+      // A Leap that misses never buys a free opening: it throws the chain after the opponent.
+      if (!landed && getDistanceToEntity(opponent) <= HOOK_RANGE && canEntityBeSeen(opponent)) {
+        lock(Action.HOOK);
+      } else {
+        changeAction(Action.RECOVER, FINISHER_RECOVERY[getPhase() - 1]);
+      }
     }
   }
 
@@ -804,8 +862,10 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     }
   }
 
-  private void impact(Vec3 point, double radius, int damage) {
+  /** Strikes every opponent in the circle; returns whether the current opponent was caught. */
+  private boolean impact(Vec3 point, double radius, int damage) {
     Vec3 origin = point.addVector(0, 1, 0);
+    boolean caught = false;
     for (Object value : worldObj.playerEntities) {
       EntityPlayer player = (EntityPlayer) value;
       double dx = player.posX - point.xCoord;
@@ -815,11 +875,13 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
           && Math.sqrt(dx * dx + dz * dz) <= radius + BossCombat.PLAYER_HIT_RADIUS
           && BossCombat.unobstructed(worldObj, origin, BossCombat.center(player))) {
         strike(player, this, damage, false);
+        caught |= player == opponent;
       }
     }
     worldObj.setEntityState(this, IMPACT_EFFECT);
     playSound("random.explode", 3, 0.7F);
     playSound("mob.zombie.woodbreak", 2, 0.5F);
+    return caught;
   }
 
   private static boolean withinReach(double rise) {
