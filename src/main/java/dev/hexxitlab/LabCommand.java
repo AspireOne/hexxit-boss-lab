@@ -46,40 +46,14 @@ public final class LabCommand extends CommandBase {
     }
     if ("retry".equals(args[0])) {
       if (!PracticeCheckpoint.restore(player)) {
-        sender.sendChatToPlayer("No practice checkpoint yet. Summon a Sovereign first.");
+        sender.sendChatToPlayer("No practice checkpoint yet. Summon a boss first.");
         return;
       }
-      processCommand(player, new String[] {"sovereign"});
+      processCommand(player, new String[] {PracticeCheckpoint.kind(player)});
       return;
     }
     if ("sovereign".equals(args[0])) {
-      if (world.difficultySetting == 0) {
-        sender.sendChatToPlayer("Set difficulty to Easy, Normal or Hard before summoning.");
-        return;
-      }
-      for (Object entity : world.loadedEntityList) {
-        if (entity instanceof Sovereign && !((Sovereign) entity).isDead) {
-          sender.sendChatToPlayer(
-              "A Sovereign is already loaded. Use /bosslab clear to remove it.");
-          return;
-        }
-      }
-      double yaw = Math.toRadians(player.rotationYaw);
-      Sovereign boss = new Sovereign(world);
-      boss.setPosition(
-          player.posX - Math.sin(yaw) * 18, player.posY + 5, player.posZ + Math.cos(yaw) * 18);
-      if (!world.spawnEntityInWorld(boss)) {
-        throw new IllegalStateException("Sovereign spawn rejected");
-      }
-      try {
-        PracticeCheckpoint.capture(player, boss);
-      } catch (RuntimeException error) {
-        boss.setDead();
-        throw error;
-      }
-      BossLab.LOGGER.info("Sovereign summoned: " + boss.getPersistentID());
-      sender.sendChatToPlayer(
-          "Checkpoint saved. Click Respawn after death to recover your gear. /bosslab retry restarts the fight.");
+      summon(player, args[0]);
     } else if ("spawn".equals(args[0])) {
       LabTarget target = new LabTarget(world);
       target.setPosition(player.posX + 2, player.posY + 1, player.posZ);
@@ -92,22 +66,13 @@ public final class LabCommand extends CommandBase {
       int count = 0;
       Object[] entities = world.loadedEntityList.toArray();
       for (Object entity : entities) {
-        if ((entity instanceof LabTarget || entity instanceof Sovereign)
+        if ((entity instanceof LabTarget || entity instanceof LabBoss)
             && !((Entity) entity).isDead) {
           count++;
           if ("clear".equals(args[0])) {
             ((Entity) entity).setDead();
-          } else if (entity instanceof Sovereign) {
-            Sovereign boss = (Sovereign) entity;
-            sender.sendChatToPlayer(
-                "Sovereign: "
-                    + boss.getHealth()
-                    + "/"
-                    + boss.getMaxHealth()
-                    + " health, phase "
-                    + boss.getPhase()
-                    + ", "
-                    + boss.getAction());
+          } else if (entity instanceof LabBoss) {
+            sender.sendChatToPlayer(((LabBoss) entity).describe());
           }
         }
       }
@@ -118,5 +83,35 @@ public final class LabCommand extends CommandBase {
     } else {
       throw new WrongUsageException(getCommandUsage(sender));
     }
+  }
+
+  private static void summon(EntityPlayerMP player, String kind) {
+    World world = player.worldObj;
+    if (world.difficultySetting == 0) {
+      player.sendChatToPlayer("Set difficulty to Easy, Normal or Hard before summoning.");
+      return;
+    }
+    for (Object entity : world.loadedEntityList) {
+      if (entity instanceof LabBoss && !((Entity) entity).isDead) {
+        player.sendChatToPlayer("A lab boss is already loaded. Use /bosslab clear to remove it.");
+        return;
+      }
+    }
+    double yaw = Math.toRadians(player.rotationYaw);
+    Entity boss = new Sovereign(world);
+    boss.setPosition(
+        player.posX - Math.sin(yaw) * 18, player.posY + 5, player.posZ + Math.cos(yaw) * 18);
+    if (!world.spawnEntityInWorld(boss)) {
+      throw new IllegalStateException(kind + " spawn rejected");
+    }
+    try {
+      PracticeCheckpoint.capture(player, boss, kind);
+    } catch (RuntimeException error) {
+      boss.setDead();
+      throw error;
+    }
+    BossLab.LOGGER.info("Boss summoned: " + kind + " " + boss.getPersistentID());
+    player.sendChatToPlayer(
+        "Checkpoint saved. Click Respawn after death to recover your gear. /bosslab retry restarts the fight.");
   }
 }

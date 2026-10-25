@@ -3,7 +3,7 @@ package dev.hexxitlab.practice;
 import cpw.mods.fml.common.ITickHandler;
 import cpw.mods.fml.common.TickType;
 import dev.hexxitlab.BossLab;
-import dev.hexxitlab.sovereign.Sovereign;
+import dev.hexxitlab.LabBoss;
 import java.util.EnumSet;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
@@ -41,7 +41,14 @@ public final class PracticeCheckpoint implements ITickHandler {
     return exists(player) && persisted(player).getCompoundTag(KEY).getBoolean("PendingRespawn");
   }
 
-  public static void capture(EntityPlayerMP player, Sovereign boss) {
+  /** The summon command that starts this checkpoint's rematch. */
+  public static String kind(EntityPlayer player) {
+    NBTTagCompound checkpoint = persisted(player).getCompoundTag(KEY);
+    // Checkpoints saved before the second boss carry no kind; only the Sovereign existed then.
+    return checkpoint.hasKey("Kind") ? checkpoint.getString("Kind") : "sovereign";
+  }
+
+  public static void capture(EntityPlayerMP player, Entity boss, String kind) {
     if (!player.isEntityAlive() || player.ridingEntity != null || player.isPlayerSleeping()) {
       throw new IllegalStateException(
           "Practice checkpoint requires an alive, awake, unmounted player");
@@ -61,6 +68,7 @@ public final class PracticeCheckpoint implements ITickHandler {
     checkpoint.setFloat("Yaw", player.rotationYaw);
     checkpoint.setFloat("Pitch", player.rotationPitch);
     checkpoint.setString("Boss", boss.getPersistentID().toString());
+    checkpoint.setString("Kind", kind);
     persisted(player).setCompoundTag(KEY, checkpoint);
     player.mcServer.getConfigurationManager().saveAllPlayerData();
     BossLab.LOGGER.info("Practice checkpoint saved for " + player.username);
@@ -87,7 +95,7 @@ public final class PracticeCheckpoint implements ITickHandler {
     // Remove only this attempt's boss, including when it is still waiting in the original
     // dimension.
     for (Object value : destination.loadedEntityList.toArray()) {
-      if (value instanceof Sovereign
+      if (value instanceof LabBoss
           && checkpoint.getString("Boss").equals(((Entity) value).getPersistentID().toString())) {
         ((Entity) value).setDead();
       }

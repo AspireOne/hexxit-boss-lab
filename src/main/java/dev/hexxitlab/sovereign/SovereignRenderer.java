@@ -1,15 +1,14 @@
 package dev.hexxitlab.sovereign;
 
+import dev.hexxitlab.Telegraphs;
 import net.minecraft.client.model.ModelBase;
 import net.minecraft.client.model.ModelRenderer;
 import net.minecraft.client.renderer.entity.RenderLiving;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.boss.BossStatus;
-import net.minecraft.util.Vec3;
 import org.lwjgl.opengl.GL11;
 
-/** Solid geometry keeps telegraphs visible even with particles disabled. */
 public final class SovereignRenderer extends RenderLiving {
   public SovereignRenderer() {
     super(new SovereignModel(), 1.2F);
@@ -51,10 +50,10 @@ public final class SovereignRenderer extends RenderLiving {
           0.55F + 0.35F * (float) Math.abs(Math.sin((entity.ticksExisted + partialTick) * 0.35));
       if (action == Sovereign.Action.BLAST) {
         GL11.glColor4f(1, 0.35F, 0.05F, alpha);
-        sphere(Sovereign.BLAST_RADIUS);
+        Telegraphs.sphere(Sovereign.BLAST_RADIUS);
       } else if (action == Sovereign.Action.LANCE || action == Sovereign.Action.RUSH) {
         GL11.glColor4f(action == Sovereign.Action.LANCE ? 0.7F : 1, 0.2F, 1, alpha);
-        corridor(
+        Telegraphs.corridor(
             boss.getAim(),
             action == Sovereign.Action.LANCE ? Sovereign.LANCE_RADIUS : Sovereign.RUSH_RADIUS);
       }
@@ -86,40 +85,6 @@ public final class SovereignRenderer extends RenderLiving {
         break;
     }
     renderLivingLabel(entity, text, x, y + 0.5, z, 96);
-  }
-
-  private static void sphere(double radius) {
-    for (int plane = 0; plane < 3; plane++) {
-      GL11.glBegin(GL11.GL_LINE_LOOP);
-      for (int i = 0; i < 96; i++) {
-        double angle = i * Math.PI * 2 / 96;
-        double a = Math.cos(angle) * radius;
-        double b = Math.sin(angle) * radius;
-        GL11.glVertex3d(
-            plane == 0 ? 0 : a, plane == 1 ? 0 : plane == 0 ? a : b, plane == 2 ? 0 : b);
-      }
-      GL11.glEnd();
-    }
-  }
-
-  private static void corridor(Vec3 aim, double radius) {
-    Vec3 direction = aim.normalize();
-    Vec3 reference =
-        Math.abs(direction.yCoord) > 0.9
-            ? Vec3.createVectorHelper(1, 0, 0)
-            : Vec3.createVectorHelper(0, 1, 0);
-    Vec3 side = direction.crossProduct(reference).normalize();
-    Vec3 up = direction.crossProduct(side).normalize();
-    GL11.glBegin(GL11.GL_LINES);
-    for (int i = 0; i < 8; i++) {
-      double angle = i * Math.PI / 4;
-      double dx = (side.xCoord * Math.cos(angle) + up.xCoord * Math.sin(angle)) * radius;
-      double dy = (side.yCoord * Math.cos(angle) + up.yCoord * Math.sin(angle)) * radius;
-      double dz = (side.zCoord * Math.cos(angle) + up.zCoord * Math.sin(angle)) * radius;
-      GL11.glVertex3d(dx, dy, dz);
-      GL11.glVertex3d(aim.xCoord + dx, aim.yCoord + dy, aim.zCoord + dz);
-    }
-    GL11.glEnd();
   }
 
   private static final class SovereignModel extends ModelBase {

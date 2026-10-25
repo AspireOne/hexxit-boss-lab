@@ -1,6 +1,8 @@
 package dev.hexxitlab.sovereign;
 
+import dev.hexxitlab.BossCombat;
 import dev.hexxitlab.BossLab;
+import dev.hexxitlab.LabBoss;
 import java.util.HashSet;
 import java.util.Set;
 import net.minecraft.entity.Entity;
@@ -16,7 +18,7 @@ import net.minecraft.util.Vec3;
 import net.minecraft.world.World;
 
 /** Server-owned combat. Each attack locks its direction before its visible windup begins. */
-public final class Sovereign extends EntityFlying implements IBossDisplayData {
+public final class Sovereign extends EntityFlying implements IBossDisplayData, LabBoss {
   public static final int MAX_HEALTH = 3600;
   public static final double BLAST_RADIUS = 18;
   public static final double LANCE_RADIUS = 1.2;
@@ -34,7 +36,6 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
   private static final double LATERAL_TRIGGER_SPEED = 0.18;
   private static final double BLAST_TRIGGER_RANGE = 20;
   private static final double RUSH_SPEED = 3.2;
-  private static final double PLAYER_HIT_RADIUS = 0.45;
   private static final int IMPACT = 26;
   private static final int HEALTH = 20;
   private static final int ACTION = 21;
@@ -145,15 +146,22 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
   }
 
   public Vec3 getAim() {
-    return Vec3.createVectorHelper(readAim(AIM_X), readAim(AIM_Y), readAim(AIM_Z));
+    return Vec3.createVectorHelper(
+        BossCombat.readFloat(dataWatcher, AIM_X),
+        BossCombat.readFloat(dataWatcher, AIM_Y),
+        BossCombat.readFloat(dataWatcher, AIM_Z));
   }
 
-  private double readAim(int index) {
-    return Float.intBitsToFloat(dataWatcher.getWatchableObjectInt(index));
-  }
-
-  private void writeAim(int index, double value) {
-    dataWatcher.updateObject(index, Integer.valueOf(Float.floatToIntBits((float) value)));
+  @Override
+  public String describe() {
+    return "Sovereign: "
+        + getHealth()
+        + "/"
+        + MAX_HEALTH
+        + " health, phase "
+        + getPhase()
+        + ", "
+        + getAction();
   }
 
   public int getPhase() {
@@ -208,11 +216,7 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
   }
 
   private boolean validOpponent(EntityPlayer player) {
-    return player != null
-        && player.isEntityAlive()
-        && !player.capabilities.disableDamage
-        && player.worldObj == worldObj
-        && getDistanceSqToEntity(player) <= ENGAGE_RANGE * ENGAGE_RANGE;
+    return BossCombat.isOpponent(this, player, ENGAGE_RANGE);
   }
 
   private void tickCombat() {
@@ -264,8 +268,8 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
         for (Object value : worldObj.playerEntities) {
           EntityPlayer player = (EntityPlayer) value;
           if (validOpponent(player)
-              && center().distanceTo(playerCenter(player)) <= BLAST_RADIUS
-              && unobstructed(center(), playerCenter(player))) {
+              && center().distanceTo(BossCombat.center(player)) <= BLAST_RADIUS
+              && BossCombat.unobstructed(worldObj, center(), BossCombat.center(player))) {
             hurt(player, BLAST_DAMAGE, true);
           }
         }
@@ -328,14 +332,14 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
     Vec3 end = start.addVector(dx / length * range, dy / length * range, dz / length * range);
     // Lance stops at cover; rush is an ethereal movement but cannot hit through cover.
     if (attack == Action.LANCE) {
-      MovingObjectPosition block = trace(start, end);
+      MovingObjectPosition block = BossCombat.trace(worldObj, start, end);
       if (block != null) {
         end = block.hitVec;
       }
     }
-    writeAim(AIM_X, end.xCoord - start.xCoord);
-    writeAim(AIM_Y, end.yCoord - start.yCoord);
-    writeAim(AIM_Z, end.zCoord - start.zCoord);
+    BossCombat.writeFloat(dataWatcher, AIM_X, end.xCoord - start.xCoord);
+    BossCombat.writeFloat(dataWatcher, AIM_Y, end.yCoord - start.yCoord);
+    BossCombat.writeFloat(dataWatcher, AIM_Z, end.zCoord - start.zCoord);
     dataWatcher.updateObject(IMPACT, Integer.valueOf(Action.HUNT.ordinal()));
     int windup = attack == Action.BLAST ? 36 : attack == Action.RUSH ? 26 : 24;
     changeAction(attack, windup - (getPhase() - 1) * 2);
@@ -367,24 +371,9 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
     return Vec3.createVectorHelper(posX, posY + CENTER_HEIGHT, posZ);
   }
 
-  private static Vec3 playerCenter(EntityPlayer player) {
-    return Vec3.createVectorHelper(player.posX, player.posY + 0.9, player.posZ);
-  }
-
-  private boolean unobstructed(Vec3 start, Vec3 end) {
-    return trace(start, end) == null;
-  }
-
-  private MovingObjectPosition trace(Vec3 start, Vec3 end) {
-    // Minecraft 1.5.2's DDA mutates its input vector. Never hand it locked attack geometry.
-    return worldObj.rayTraceBlocks(
-        Vec3.createVectorHelper(start.xCoord, start.yCoord, start.zCoord),
-        Vec3.createVectorHelper(end.xCoord, end.yCoord, end.zCoord));
-  }
-
   private void hitLine(Vec3 start, Vec3 end, double radius, int damage, boolean magic) {
     if (magic) {
-      MovingObjectPosition block = trace(start, end);
+      MovingObjectPosition block = BossCombat.trace(worldObj, start, end);
       if (block != null) {
         end = block.hitVec;
       }
@@ -395,37 +384,15 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData {
           || (!magic && rushHits.contains(Integer.valueOf(player.entityId)))) {
         continue;
       }
-      if (inCorridor(start, end, playerCenter(player), radius + PLAYER_HIT_RADIUS)
-          && unobstructed(start, playerCenter(player))) {
+      if (BossCombat.inCorridor(
+              start, end, BossCombat.center(player), radius + BossCombat.PLAYER_HIT_RADIUS)
+          && BossCombat.unobstructed(worldObj, start, BossCombat.center(player))) {
         hurt(player, damage, magic);
         if (!magic) {
           rushHits.add(Integer.valueOf(player.entityId));
         }
       }
     }
-  }
-
-  /** Finite cylindrical strike with rounded ends; shared by lance and swept rush. */
-  private static boolean inCorridor(Vec3 start, Vec3 end, Vec3 point, double radius) {
-    double dx = end.xCoord - start.xCoord;
-    double dy = end.yCoord - start.yCoord;
-    double dz = end.zCoord - start.zCoord;
-    double lengthSquared = dx * dx + dy * dy + dz * dz;
-    double t =
-        lengthSquared == 0
-            ? 0
-            : Math.max(
-                0,
-                Math.min(
-                    1,
-                    ((point.xCoord - start.xCoord) * dx
-                            + (point.yCoord - start.yCoord) * dy
-                            + (point.zCoord - start.zCoord) * dz)
-                        / lengthSquared));
-    double x = start.xCoord + t * dx - point.xCoord;
-    double y = start.yCoord + t * dy - point.yCoord;
-    double z = start.zCoord + t * dz - point.zCoord;
-    return x * x + y * y + z * z <= radius * radius;
   }
 
   private void hurt(EntityPlayer player, int damage, boolean magic) {
