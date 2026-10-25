@@ -78,7 +78,7 @@ There is no hosted CI because the project is local-only. Deployment independentl
 
 1. Inspect `git status`, the lab marker, and whether Minecraft is running. Never stop an unrelated game session.
 2. Run `.\lab.ps1 check` while iterating. Commit hooks own automatic formatting.
-3. Run `.\lab.ps1 smoke` after changes affecting game integration. Keep the Windows desktop available for Prism and Minecraft. Do not interact with the game during the test.
+3. Run `.\lab.ps1 smoke` after changes affecting game integration. Do not interact with the game during the test; other work on the desktop can continue. The harness never grabs the mouse, and for 90 seconds after each launch the runner returns foreground focus taken by Prism or Minecraft to the previous window. Later focus changes are left alone, so clicking into the game to watch it stays possible.
 4. Inspect both phase results in the reported `.lab/runs/<run>/` directory. A timeout, crash, missing result, wrong run identifier, or failed assertion means failure.
 5. For visual changes, run `.\lab.ps1 play`, load **Kratom - Boss Lab**, and use `/bosslab spawn`. Inspect the target's model, texture, health label, and health changes after damage. Use `/bosslab clear` afterward and exit through Save and Quit.
 6. Record the commands and observed result in the task report. A successful static check does not substitute for a runtime or visual check.
@@ -86,6 +86,8 @@ There is no hosted CI because the project is local-only. Deployment independentl
 The harness enters the test world from the title screen. The create phase invokes the real spawn command, checks the server target and its client-side health, applies seven points of player-sourced damage, and confirms 33 health on both sides. It tags that entity for the current run, saves, and exits. The reload phase finds the same tag and health in the reopened world, checks lethal damage, and confirms cleanup leaves an unrelated sentinel entity alive. It removes its sentinel before saving and exiting.
 
 Shutdown order matters in this legacy pack: stop the integrated server while the client connection remains alive, disconnect after server save hooks finish, drain pending file writes, publish the result, then request normal Minecraft shutdown. Keep that order when extending the harness. The runner also checks for crashes produced during saving and exit.
+
+During a run the harness disables pause-on-focus-loss and sets the client difficulty to Normal, restoring both preferences at shutdown. The integrated server copies difficulty from client options every tick, so assigning a world's difficulty does not last; on Hard, mob damage arrives ×1.5 before any Forge event observes it. Scenarios locate equipment by item type rather than slot and supply consumed pack items from the item registry, because the copied character changes between play sessions.
 
 The original target scenario retains the copied player's equipment and capabilities. It uses tick conditions and bounded timeouts, rather than assuming that loading completes after a fixed delay. Only an explicitly requested smoke run auto-enters the world. Target smoke advances the lab world's normal simulation; use `reset-world` when a fresh baseline is needed.
 

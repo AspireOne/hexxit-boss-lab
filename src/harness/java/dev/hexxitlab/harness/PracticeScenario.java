@@ -22,6 +22,9 @@ import net.minecraftforge.event.entity.player.PlayerDropsEvent;
 /** Real network respawn, Forge cloning, disk persistence, inventory and client synchronization. */
 public final class PracticeScenario {
   private static final String EXPECTED = "BossLabPracticeExpected";
+  // Tags that carried items advance on their own every tick, so they drift after any restore.
+  // chargeTime: Xeno's Reliquary Twilight Cloak countdown while active.
+  private static final String[] SELF_TICKING_TAGS = {"chargeTime"};
   private final boolean reload;
   private volatile int stage;
   private int ticks;
@@ -31,6 +34,7 @@ public final class PracticeScenario {
   private volatile boolean requestRespawn;
   private volatile boolean respawnSent;
   private volatile boolean clientRestored;
+  private volatile String clientMismatch = "client not observed";
   private int clientDeathTicks;
   private double x;
   private double y;
@@ -178,16 +182,13 @@ public final class PracticeScenario {
           "Practice PASS: checkpoint survived restart, retry synchronized, opt-out works");
       return true;
     }
-    require(ticks < 400, "Practice scenario timed out at stage " + stage);
+    require(ticks < 400, "Practice scenario timed out at stage " + stage + ": " + clientMismatch);
     return false;
   }
 
   private void assertCharacter(EntityPlayerMP player) {
     require(
-        player
-            .inventory
-            .writeToNBT(new NBTTagList("Inventory"))
-            .equals(expected.getTagList("Inventory")),
+        sameInventory(player.inventory.writeToNBT(new NBTTagList("Inventory"))),
         "Inventory, armour, enchantments, durability, bags and consumables must match checkpoint");
     require(player.getHealth() == expected.getShort("Health"), "Health must match checkpoint");
     require(
@@ -209,6 +210,22 @@ public final class PracticeScenario {
         player.capabilities.isFlying && player.capabilities.allowFlying,
         "Capabilities must return to checkpoint");
     require(player.hurtResistantTime > 0, "Restore must grant brief recovery grace");
+  }
+
+  private boolean sameInventory(NBTTagList actual) {
+    return withoutSelfTickingTags(actual)
+        .equals(withoutSelfTickingTags(expected.getTagList("Inventory")));
+  }
+
+  private static NBTTagList withoutSelfTickingTags(NBTTagList inventory) {
+    NBTTagList copy = (NBTTagList) inventory.copy();
+    for (int i = 0; i < copy.tagCount(); i++) {
+      NBTTagCompound stack = (NBTTagCompound) copy.tagAt(i);
+      for (String tag : SELF_TICKING_TAGS) {
+        stack.getCompoundTag("tag").removeTag(tag);
+      }
+    }
+    return copy;
   }
 
   private static void damageEquipment(EntityPlayerMP player) {
@@ -250,18 +267,30 @@ public final class PracticeScenario {
       }
     }
     if (!requestRespawn && expected != null && minecraft.thePlayer.getHealth() > 0) {
-      clientRestored =
-          minecraft
-                  .thePlayer
-                  .inventory
-                  .writeToNBT(new NBTTagList("Inventory"))
-                  .equals(expected.getTagList("Inventory"))
-              && minecraft.thePlayer.inventory.currentItem
-                  == expected.getInteger("SelectedItemSlot")
-              // The local legacy player's posY includes its eye offset; compare feet on both sides.
-              && Math.abs(minecraft.thePlayer.posX - x) < 0.5
-              && Math.abs(minecraft.thePlayer.boundingBox.minY - y) < 0.5
-              && Math.abs(minecraft.thePlayer.posZ - z) < 0.5;
+      EntityPlayer local = minecraft.thePlayer;
+      // The local legacy player's posY includes its eye offset; compare feet on both sides.
+      clientMismatch =
+          !sameInventory(local.inventory.writeToNBT(new NBTTagList("Inventory")))
+              ? "client inventory differs"
+              : local.inventory.currentItem != expected.getInteger("SelectedItemSlot")
+                  ? "client held slot " + local.inventory.currentItem
+                  : Math.abs(local.posX - x) >= 0.5
+                          || Math.abs(local.boundingBox.minY - y) >= 0.5
+                          || Math.abs(local.posZ - z) >= 0.5
+                      ? "client feet at "
+                          + local.posX
+                          + ","
+                          + local.boundingBox.minY
+                          + ","
+                          + local.posZ
+                          + " expected "
+                          + x
+                          + ","
+                          + y
+                          + ","
+                          + z
+                      : null;
+      clientRestored = clientMismatch == null;
     }
   }
 

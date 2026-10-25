@@ -2,6 +2,7 @@
 
 import argparse
 import contextlib
+import ctypes
 import hashlib
 import json
 import os
@@ -25,6 +26,10 @@ WORLD = 'Kratom - Boss Lab'
 MARKER = '.hexxit-boss-lab.json'
 MOD_FILE = 'hexxit-boss-lab.jar'
 HARNESS_FILE = 'hexxit-boss-lab-harness.jar'
+GAME_PROCESSES = {'java.exe', 'javaw.exe', 'prismlauncher.exe'}
+# Covers Prism startup and Minecraft window creation; later focus changes are the developer's.
+FOCUS_GUARD_SECONDS = 90
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 PROCESS_CHECK = """
 $ErrorActionPreference = 'Stop'
 try {
@@ -344,6 +349,70 @@ def reset_world():
     print('World restored; previous state retained at ' + str(snapshot))
 
 
+class FocusGuard:
+    """Hands foreground focus taken by a test launch back to the window the developer was using.
+
+    Only launch-time takeovers are reverted: after FOCUS_GUARD_SECONDS, a deliberate click into
+    the game to watch a run is left alone.
+    """
+
+    def __init__(self):
+        from ctypes import wintypes
+        self.user32 = ctypes.WinDLL('user32', use_last_error=True)
+        self.kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        self.user32.GetForegroundWindow.restype = wintypes.HWND
+        self.user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+        self.user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
+        self.user32.IsWindow.argtypes = (wintypes.HWND,)
+        self.kernel32.OpenProcess.restype = wintypes.HANDLE
+        self.kernel32.QueryFullProcessImageNameW.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD))
+        self.kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        self.wintypes = wintypes
+        self.previous = None
+        self.until = 0
+
+    def arm(self):
+        self.until = time.monotonic() + FOCUS_GUARD_SECONDS
+        self.check()
+
+    def window_owner(self, window):
+        process = self.wintypes.DWORD()
+        thread = self.user32.GetWindowThreadProcessId(window, ctypes.byref(process))
+        handle = self.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, process.value)
+        if not handle:
+            return thread, ''
+        try:
+            size = self.wintypes.DWORD(1024)
+            name = ctypes.create_unicode_buffer(size.value)
+            if not self.kernel32.QueryFullProcessImageNameW(handle, 0, name, ctypes.byref(size)):
+                return thread, ''
+            return thread, Path(name.value).name.lower()
+        finally:
+            self.kernel32.CloseHandle(handle)
+
+    def check(self):
+        window = self.user32.GetForegroundWindow()
+        if not window:
+            return
+        thread, process = self.window_owner(window)
+        if not process:
+            # Unreadable owner: neither safe to restore to nor known to be the game.
+            return
+        if process not in GAME_PROCESSES:
+            self.previous = window
+            return
+        if time.monotonic() > self.until or not self.previous or not self.user32.IsWindow(self.previous):
+            return
+        # Windows only lets the foreground input queue change the foreground window.
+        current = self.kernel32.GetCurrentThreadId()
+        self.user32.AttachThreadInput(current, thread, True)
+        try:
+            restored = self.user32.SetForegroundWindow(self.previous)
+        finally:
+            self.user32.AttachThreadInput(current, thread, False)
+        print('Returned focus from ' + process + (' (ok)' if restored else ' (refused by Windows)'), flush=True)
+
+
 def launch():
     validate_lab()
     executable = Path(os.environ['LOCALAPPDATA']) / 'Programs/PrismLauncher/prismlauncher.exe'
@@ -389,6 +458,7 @@ def smoke(scenario='target'):
         shutil.copytree(world, snapshot)
         write_json(run / 'world-before-hashes.json', tree_hashes(snapshot))
     succeeded = False
+    focus = FocusGuard()
     try:
         # Two real game launches exercise the world persistence boundary.
         for phase in ('create', 'reload'):
@@ -398,6 +468,7 @@ def smoke(scenario='target'):
             result = TARGET / 'minecraft' / ('bosslab-' + phase + '-result.properties')
             result.unlink(missing_ok=True)
             started = time.time()
+            focus.arm()
             launch()
             print('Waiting for runtime phase: ' + phase, flush=True)
             deadline = time.monotonic() + 240
@@ -406,7 +477,8 @@ def smoke(scenario='target'):
                     crashes = TARGET / 'minecraft/crash-reports'
                     if any(p.stat().st_mtime >= started for p in crashes.glob('crash-*.txt')):
                         raise RuntimeError('Minecraft crashed during ' + phase + '; inspect ' + str(run))
-                    time.sleep(1)
+                    focus.check()
+                    time.sleep(0.25)
                 if not result.exists():
                     raise RuntimeError('Smoke timed out; inspect Minecraft and ' + str(run))
                 shutil.copy2(result, run / result.name)

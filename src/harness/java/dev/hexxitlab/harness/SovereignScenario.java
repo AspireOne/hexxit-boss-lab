@@ -141,11 +141,11 @@ public final class SovereignScenario {
         boss.hurtResistantTime = 0;
         boss.setEntityHealth(3600);
         face(player, boss);
-        ItemStack bow = player.inventory.getStackInSlot(4);
-        if (bow == null || !bow.getItem().getClass().getName().contains("bowDiamond")) {
-          throw new IllegalStateException("Copied Crystal Bow required");
-        }
-        player.inventory.currentItem = 4;
+        // Find the bow by type: the copied character's hotbar layout changes between play sessions.
+        int bowSlot = hotbarSlot("bowDiamond");
+        require(bowSlot >= 0, "Copied Crystal Bow required in the hotbar");
+        ItemStack bow = player.inventory.getStackInSlot(bowSlot);
+        player.inventory.currentItem = bowSlot;
         bow.onPlayerStoppedUsing(world, player, bow.getMaxItemUseDuration() - 6);
         stage = 1;
         ticks = 0;
@@ -164,7 +164,14 @@ public final class SovereignScenario {
       if (boss.getHealth() < 3600) {
         BossLab.LOGGER.info("Sovereign equipment: Crystal Bow damage=" + (3600 - boss.getHealth()));
         featherId = findItem("PhoenixFeather");
-        require(featherId >= 0, "Copied Phoenix Feathers required");
+        if (featherId < 0) {
+          // Players spend feathers between sessions; the probe needs the pack's real item, not
+          // the character's supply. Save restoration removes this one afterwards.
+          featherId = registeredItem("PhoenixFeather");
+          require(
+              player.inventory.addItemStackToInventory(new ItemStack(featherId, 2, 0)),
+              "Inventory space required for the Phoenix Feather probe");
+        }
         startCase(world);
         stage = 2;
       } else {
@@ -247,7 +254,9 @@ public final class SovereignScenario {
             CASES[testCase] + ": expected " + (shouldHit ? 1 : 0) + " hit, saw " + hits);
         if (shouldHit) {
           int expectedDamage = testCase == 3 || testCase == 11 ? 100 : testCase == 5 ? 64 : 48;
-          require(rawDamage == expectedDamage, "Attack must deliver its documented raw damage");
+          require(
+              rawDamage == expectedDamage,
+              CASES[testCase] + ": expected raw damage " + expectedDamage + ", saw " + rawDamage);
         }
         if (testCase == 3 || testCase == 4 || testCase == 11) {
           require(
@@ -534,6 +543,25 @@ public final class SovereignScenario {
     for (ItemStack item : player.inventory.mainInventory) {
       if (item != null && item.getItem().getClass().getSimpleName().equals(className)) {
         return item.itemID;
+      }
+    }
+    return -1;
+  }
+
+  private static int registeredItem(String className) {
+    for (Item item : Item.itemsList) {
+      if (item != null && item.getClass().getSimpleName().equals(className)) {
+        return item.itemID;
+      }
+    }
+    throw new IllegalStateException("Installed pack must register " + className);
+  }
+
+  private int hotbarSlot(String classFragment) {
+    for (int slot = 0; slot < 9; slot++) {
+      ItemStack item = player.inventory.getStackInSlot(slot);
+      if (item != null && item.getItem().getClass().getName().contains(classFragment)) {
+        return slot;
       }
     }
     return -1;

@@ -42,6 +42,8 @@ import net.minecraftforge.event.entity.living.LivingAttackEvent;
 public final class SmokeHarness {
   private static final String WORLD = "Kratom - Boss Lab";
   private static final String RUN_TAG = "BossLabSmoke";
+  // The integrated server copies difficulty from client options; Normal leaves raw damage unscaled.
+  private static final int NORMAL_DIFFICULTY = 2;
   private final Properties request = new Properties();
   private volatile int targetId = -1;
   private volatile int observedHealth = -1;
@@ -60,6 +62,7 @@ public final class SmokeHarness {
   private PracticeScenario practice;
   private boolean clientOptionsSaved;
   private boolean originalPauseOnLostFocus;
+  private int originalDifficulty;
 
   @Mod.PostInit
   public void initialize(FMLPostInitializationEvent event) throws IOException {
@@ -283,12 +286,16 @@ public final class SmokeHarness {
         }
         if (!clientOptionsSaved) {
           originalPauseOnLostFocus = minecraft.gameSettings.pauseOnLostFocus;
+          originalDifficulty = minecraft.gameSettings.difficulty;
+          minecraft.gameSettings.difficulty = NORMAL_DIFFICULTY;
           clientOptionsSaved = true;
           minecraft.gameSettings.pauseOnLostFocus = false;
         }
         if (minecraft.theWorld != null && minecraft.currentScreen instanceof GuiIngameMenu) {
           minecraft.displayGuiScreen(null);
         }
+        // Never hold the developer's cursor: scenarios drive the player directly, not via input.
+        minecraft.setIngameNotInFocus();
         if (!launched && minecraft.currentScreen instanceof GuiMainMenu) {
           launched = true;
           minecraft.launchIntegratedServer(WORLD, WORLD, null);
@@ -321,6 +328,7 @@ public final class SmokeHarness {
           ThreadedFileIOBase.threadedIOInstance.waitForFinish();
           writeResult();
           minecraft.gameSettings.pauseOnLostFocus = originalPauseOnLostFocus;
+          minecraft.gameSettings.difficulty = originalDifficulty;
           minecraft.shutdown();
         }
       } catch (Throwable error) {
