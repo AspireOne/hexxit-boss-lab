@@ -37,7 +37,7 @@ import net.minecraftforge.event.entity.living.LivingAttackEvent;
 @Mod(
     modid = "hexxitlabharness",
     name = "Boss Lab Smoke Harness",
-    version = "0.5.0",
+    version = "0.5.1",
     dependencies = "required-after:hexxitbosslab")
 public final class SmokeHarness {
   private static final String WORLD = "Kratom - Boss Lab";

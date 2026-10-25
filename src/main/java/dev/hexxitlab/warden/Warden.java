@@ -21,7 +21,8 @@ import net.minecraft.world.World;
 
 /**
  * Server-owned grounded duel. Its front guard deflects hits until it commits to a strike. Each
- * combo step re-reads the opponent's position, then locks its geometry before the visible windup.
+ * strike tracks where the opponent is heading, then locks for its final ticks: steady movement
+ * walks into a strike, and only a reaction to the lock escapes it.
  */
 public final class Warden extends EntityLiving implements IBossDisplayData, LabBoss {
   public static final int MAX_HEALTH = 4000;
@@ -51,13 +52,19 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private static final byte NOVA_EFFECT = 21;
   private static final double GUARD_ARC = 70;
   private static final double SLAM_REACH = 3;
-  private static final double HOOK_RANGE = 22;
+  public static final double HOOK_RANGE = 22;
   private static final double REACH_LOW = -1.5;
   private static final double REACH_HIGH = 3;
   private static final double CLOSE_DISTANCE = 3;
   private static final double OPEN_DISTANCE = 6;
-  private static final double SLAM_CHOICE = 8;
+  // A Slam reaches 3 + 3.5 blocks; an opponent heading beyond that gets a Leap instead.
+  private static final double SLAM_CHOICE = 6;
   private static final double MEDIUM_DISTANCE = 8;
+  // Leading is capped so a burst of flight does not send a strike absurdly far ahead.
+  private static final double LEAD_LIMIT = 8;
+  // Larger jumps between ticks are teleports or reels, not movement worth leading.
+  private static final double TELEPORT_STEP = 3;
+  private static final double VELOCITY_SMOOTHING = 0.4;
   private static final double LEAP_DISTANCE = 14;
   // Rolling behind a cleave leaves the opponent outside the front half even after the chain turn.
   private static final double BEHIND_ANGLE = 90;
@@ -69,7 +76,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private static final int HOOK_MISS_RECOVERY = 24;
   private static final int NOVA_RECOVERY = 40;
   private static final int STUCK_TICKS = 40;
-  private static final int HOOK_COOLDOWN = 200;
+  private static final int HOOK_COOLDOWN = 160;
   private static final int KINDLE_TICKS = 40;
   private static final int RECLAIM_LIMIT = 120;
   private static final int NOVA_WINDUP = 30;
@@ -78,19 +85,27 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private static final int DIVE_INTERVAL = 50;
   private static final int SPAWN_DELAY = 60;
   private static final int RESET_TICKS = 300;
-  // Per-phase tuning, indexed by phase - 1.
-  private static final int[] CLEAVE_WINDUP = {16, 14, 11};
+  // Per-phase tuning, indexed by phase - 1. A strike tracks for its windup minus its commit, then
+  // holds still for the commit: the commit is the reaction window.
+  private static final int[] CLEAVE_WINDUP = {20, 17, 14};
+  private static final int[] CLEAVE_COMMIT = {12, 11, 9};
+  // The Backhand punishes standing behind it; it never tracks.
   private static final int[] BACKHAND_WINDUP = {12, 11, 9};
-  private static final int[] SLAM_WINDUP = {20, 18, 14};
+  private static final int[] SLAM_WINDUP = {24, 21, 18};
+  private static final int[] SLAM_COMMIT = {18, 16, 14};
+  // The landing locks shortly before takeoff; the flight adds to the reaction window.
   private static final int[] LEAP_WINDUP = {18, 16, 12};
-  private static final int[] HOOK_WINDUP = {18, 15, 12};
+  private static final int[] LEAP_COMMIT = {6, 5, 4};
+  private static final int[] HOOK_WINDUP = {20, 17, 14};
+  private static final int[] HOOK_COMMIT = {10, 9, 8};
   private static final int[] FINISHER_RECOVERY = {50, 40, 30};
   private static final int[] COMBO_LENGTH = {2, 3, 4};
   private static final int[] COMBO_GAP = {8, 7, 5};
   private static final int[] COOLDOWN = {20, 14, 8};
   private static final float[] TURN_RATE = {12, 15, 20};
   private static final float[] CHAIN_TURN_RATE = {9, 12, 16};
-  private static final double[] WALK_SPEED = {0.22, 0.26, 0.3};
+  // Players walk 0.22 blocks per tick and sprint 0.28.
+  private static final double[] WALK_SPEED = {0.25, 0.28, 0.31};
   private static final int HEALTH = 20;
   private static final int ACTION = 21;
   private static final int TIMER = 22;
@@ -130,6 +145,11 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private int diveTimer;
   private int ash;
   private Vec3 travelStart;
+  private EntityPlayer tracked;
+  private double trackedX;
+  private double trackedZ;
+  private double velocityX;
+  private double velocityZ;
 
   public Warden(World world) {
     super(world);
@@ -275,6 +295,59 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     return getPhase() == 3 || getAction() == Action.RECOVER;
   }
 
+  /** Whether the current strike's warning has locked, or its leap is in flight. */
+  public boolean isCommitted() {
+    Action action = getAction();
+    return action == Action.AIRBORNE
+        || (isStrike(action) && getActionTicks() <= commit(action, getPhase()));
+  }
+
+  public static boolean isStrike(Action action) {
+    return windups(action) != null;
+  }
+
+  public static int windup(Action action, int phase) {
+    return windups(action)[phase - 1];
+  }
+
+  public static int commit(Action action, int phase) {
+    return commits(action)[phase - 1];
+  }
+
+  private static int[] windups(Action action) {
+    switch (action) {
+      case CLEAVE:
+        return CLEAVE_WINDUP;
+      case BACKHAND:
+        return BACKHAND_WINDUP;
+      case SLAM:
+        return SLAM_WINDUP;
+      case LEAP:
+        return LEAP_WINDUP;
+      case HOOK:
+        return HOOK_WINDUP;
+      default:
+        return null;
+    }
+  }
+
+  private static int[] commits(Action action) {
+    switch (action) {
+      case CLEAVE:
+        return CLEAVE_COMMIT;
+      case BACKHAND:
+        return BACKHAND_WINDUP;
+      case SLAM:
+        return SLAM_COMMIT;
+      case LEAP:
+        return LEAP_COMMIT;
+      case HOOK:
+        return HOOK_COMMIT;
+      default:
+        throw new IllegalArgumentException("Not a strike: " + action);
+    }
+  }
+
   public static int guarded(int amount) {
     return Math.max(1, Math.round(amount * GUARD_FACTOR));
   }
@@ -285,6 +358,14 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
       return false;
     }
     if (isWarded() && source != DamageSource.outOfWorld) {
+      if (!worldObj.isRemote) {
+        playSound("random.anvil_land", 0.6F, 1.6F);
+      }
+      return false;
+    }
+    // It can answer from anywhere it can be hurt: shots from beyond its hook's reach glance off.
+    Entity shooter = source.getEntity();
+    if (source.isProjectile() && shooter != null && getDistanceToEntity(shooter) > HOOK_RANGE) {
       if (!worldObj.isRemote) {
         playSound("random.anvil_land", 0.6F, 1.6F);
       }
@@ -369,6 +450,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
 
   private void tickCombat() {
     int phase = getPhase();
+    observeOpponent();
     if (!isWarded()) {
       // Phase changes interrupt anything, including a leap in flight.
       if (phase == 1 && getHealth() <= KINDLE_HEALTH) {
@@ -389,11 +471,18 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
         hunt();
         break;
       case CHAIN:
-        turnToward(opponent, CHAIN_TURN_RATE[phase - 1]);
+        turnToward(opponent.posX, opponent.posZ, CHAIN_TURN_RATE[phase - 1]);
         approach(WALK_SPEED[phase - 1] * CHAIN_SPEED);
         if (--remaining <= 0) {
           nextStep();
         }
+        break;
+      case CLEAVE:
+      case BACKHAND:
+      case SLAM:
+      case LEAP:
+      case HOOK:
+        windUp(getAction());
         break;
       case AIRBORNE:
         fly();
@@ -419,7 +508,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
 
   private void hunt() {
     int phase = getPhase();
-    turnToward(opponent, TURN_RATE[phase - 1]);
+    turnToward(opponent.posX, opponent.posZ, TURN_RATE[phase - 1]);
     approach(WALK_SPEED[phase - 1]);
     double horizontal = horizontalDistance(opponent);
     // Kiting and terrain both look like a lack of progress; a leap answers either.
@@ -444,10 +533,13 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
       comboStep = 0;
       comboLength = COMBO_LENGTH[phase - 1];
       nextStep();
+    } else if (hookCooldown == 0
+        && horizontal >= MEDIUM_DISTANCE
+        && horizontal <= LEAP_DISTANCE
+        && visible) {
+      lock(Action.HOOK);
     } else if (horizontal > LEAP_DISTANCE || stuckTicks >= STUCK_TICKS) {
       lock(Action.LEAP);
-    } else if (phase >= 2 && hookCooldown == 0 && horizontal >= MEDIUM_DISTANCE && visible) {
-      lock(Action.HOOK);
     }
   }
 
@@ -455,31 +547,67 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private void nextStep() {
     double horizontal = horizontalDistance(opponent);
     if (++comboStep >= comboLength || horizontal > OPEN_DISTANCE) {
-      lock(horizontal <= SLAM_CHOICE ? Action.SLAM : Action.LEAP);
+      // Backing away from a combo earns a Leap after you, not a Slam that falls short.
+      Vec3 heading = ahead(feet(), commit(Action.SLAM, getPhase()));
+      lock(
+          horizontalDistance(heading.xCoord, heading.zCoord) <= SLAM_CHOICE
+              ? Action.SLAM
+              : Action.LEAP);
     } else {
       lock(Math.abs(angleTo(opponent)) > BEHIND_ANGLE ? Action.BACKHAND : Action.CLEAVE);
     }
   }
 
   private void lock(Action action) {
-    int phase = getPhase() - 1;
+    changeAction(action, windup(action, getPhase()));
+    if (action == Action.HOOK) {
+      hookCooldown = HOOK_COOLDOWN;
+    }
+    aim(action);
+    playSound(
+        action == Action.HOOK ? "random.bow" : "mob.irongolem.throw",
+        2,
+        action == Action.SLAM || action == Action.LEAP ? 0.4F : 0.7F);
+  }
+
+  /** Tracks the opponent until the commit, then holds the locked warning still. */
+  private void windUp(Action action) {
+    if (--remaining <= 0) {
+      execute(action);
+    } else if (remaining >= commit(action, getPhase())) {
+      if (action == Action.CLEAVE) {
+        approach(WALK_SPEED[getPhase() - 1]);
+      }
+      aim(action);
+    }
+  }
+
+  /** Aims at where the opponent is heading when the strike lands, measured from its commit. */
+  private void aim(Action action) {
+    int lead = commit(action, getPhase()) + (action == Action.LEAP ? LEAP_AIRTIME : 0);
+    Vec3 heading = ahead(feet(), lead);
     double yaw = rotationYaw;
     double x = posX;
     double y = posY;
     double z = posZ;
-    int windup;
-    if (action == Action.SLAM) {
+    if (action == Action.CLEAVE) {
+      turnToward(heading.xCoord, heading.zCoord, TURN_RATE[getPhase() - 1]);
+      yaw = rotationYaw;
+    } else if (action == Action.SLAM) {
+      // The body turns at its usual rate, but the ground strike never lags behind the opponent.
+      turnToward(heading.xCoord, heading.zCoord, TURN_RATE[getPhase() - 1]);
+      yaw = yawToward(heading.xCoord, heading.zCoord);
       x += forwardX(yaw) * SLAM_REACH;
       z += forwardZ(yaw) * SLAM_REACH;
-      windup = SLAM_WINDUP[phase];
     } else if (action == Action.LEAP) {
-      x = opponent.posX;
-      z = opponent.posZ;
+      x = heading.xCoord;
+      z = heading.zCoord;
       y = groundBelow(worldObj, x, opponent.posY, z);
-      windup = LEAP_WINDUP[phase];
+      yaw = yawToward(x, z);
+      rotationYaw = (float) yaw;
     } else if (action == Action.HOOK) {
       Vec3 start = chest();
-      Vec3 target = BossCombat.center(opponent);
+      Vec3 target = ahead(BossCombat.center(opponent), lead);
       double length = start.distanceTo(target);
       Vec3 end =
           start.addVector(
@@ -495,22 +623,45 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
       z = end.zCoord;
       yaw = yawToward(target.xCoord, target.zCoord);
       rotationYaw = (float) yaw;
-      hookCooldown = HOOK_COOLDOWN;
-      windup = HOOK_WINDUP[phase];
-    } else if (action == Action.BACKHAND) {
-      windup = BACKHAND_WINDUP[phase];
-    } else {
-      windup = CLEAVE_WINDUP[phase];
     }
     BossCombat.writeFloat(dataWatcher, STRIKE_X, x);
     BossCombat.writeFloat(dataWatcher, STRIKE_Y, y);
     BossCombat.writeFloat(dataWatcher, STRIKE_Z, z);
     BossCombat.writeFloat(dataWatcher, STRIKE_YAW, yaw);
-    changeAction(action, windup);
-    playSound(
-        action == Action.HOOK ? "random.bow" : "mob.irongolem.throw",
-        2,
-        action == Action.SLAM || action == Action.LEAP ? 0.4F : 0.7F);
+  }
+
+  /** Smoothed horizontal velocity of the opponent, from its server positions. */
+  private void observeOpponent() {
+    double dx = opponent.posX - trackedX;
+    double dz = opponent.posZ - trackedZ;
+    if (opponent != tracked || dx * dx + dz * dz > TELEPORT_STEP * TELEPORT_STEP) {
+      tracked = opponent;
+      velocityX = velocityZ = 0;
+    } else {
+      velocityX += (dx - velocityX) * VELOCITY_SMOOTHING;
+      velocityZ += (dz - velocityZ) * VELOCITY_SMOOTHING;
+    }
+    trackedX = opponent.posX;
+    trackedZ = opponent.posZ;
+  }
+
+  private void forgetVelocity() {
+    velocityX = velocityZ = 0;
+    trackedX = opponent.posX;
+    trackedZ = opponent.posZ;
+  }
+
+  /** The point displaced along the opponent's current heading for the given ticks. */
+  Vec3 ahead(Vec3 point, int ticks) {
+    double dx = velocityX * ticks;
+    double dz = velocityZ * ticks;
+    double length = Math.sqrt(dx * dx + dz * dz);
+    double scale = length > LEAD_LIMIT ? LEAD_LIMIT / length : 1;
+    return point.addVector(dx * scale, 0, dz * scale);
+  }
+
+  private Vec3 feet() {
+    return Vec3.createVectorHelper(opponent.posX, opponent.posY, opponent.posZ);
   }
 
   private void execute(Action action) {
@@ -609,6 +760,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private void reel() {
     Vec3 end = reelDestination();
     if (end == null) {
+      forgetVelocity();
       lock(Action.SLAM);
       return;
     }
@@ -621,6 +773,8 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     opponent.fallDistance = 0;
     if (remaining <= 0) {
       rotationYaw = (float) yawToward(opponent.posX, opponent.posZ);
+      // The reel's own pull is not the opponent's heading.
+      forgetVelocity();
       lock(Action.SLAM);
     }
   }
@@ -761,9 +915,8 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     playSound("mob.blaze.breathe", 4, 0.4F);
   }
 
-  private void turnToward(Entity target, float rate) {
-    double delta =
-        MathHelper.wrapAngleTo180_double(yawToward(target.posX, target.posZ) - rotationYaw);
+  private void turnToward(double x, double z, float rate) {
+    double delta = MathHelper.wrapAngleTo180_double(yawToward(x, z) - rotationYaw);
     rotationYaw += (float) Math.max(-rate, Math.min(rate, delta));
   }
 
@@ -796,8 +949,12 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   }
 
   private double horizontalDistance(Entity entity) {
-    double dx = entity.posX - posX;
-    double dz = entity.posZ - posZ;
+    return horizontalDistance(entity.posX, entity.posZ);
+  }
+
+  private double horizontalDistance(double x, double z) {
+    double dx = x - posX;
+    double dz = z - posZ;
     return Math.sqrt(dx * dx + dz * dz);
   }
 

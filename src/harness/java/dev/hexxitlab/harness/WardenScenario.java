@@ -47,11 +47,17 @@ public final class WardenScenario {
   private static final int PROBE_DAMAGE = 20;
   private static final int FRAMING_FRAMES = 6;
   private static final int ARROW_DAMAGE = 24;
+  private static final double SNIPER_DISTANCE = Warden.HOOK_RANGE + 4;
+  // A player's walking speed in blocks per tick.
+  private static final double WALK = 0.216;
   private static final String[] PICTURES = {
     "CLEAVE", "SLAM", "LEAP", "HOOK", "RECLAIM", "EXPOSED", "CINDER"
   };
 
-  /** One locked attack and the player's scripted answer, in the Warden's frame at the lock. */
+  /**
+   * One attack and the player's scripted answer when its warning locks: a move in the Warden's
+   * frame at the commit, or reversing the combo's steady movement.
+   */
   private static final class Step {
     final Warden.Action action;
     final boolean move;
@@ -59,25 +65,42 @@ public final class WardenScenario {
     final double side;
     final double up;
     final int windup;
+    final boolean reverse;
 
     Step(Warden.Action action) {
-      this(action, false, 0, 0, 0, 0);
+      this(action, false, 0, 0, 0, 0, false);
     }
 
     Step(Warden.Action action, double forward, double side, double up) {
-      this(action, true, forward, side, up, 0);
+      this(action, true, forward, side, up, 0, false);
     }
 
-    Step(Warden.Action action, boolean move, double forward, double side, double up, int windup) {
+    Step(
+        Warden.Action action,
+        boolean move,
+        double forward,
+        double side,
+        double up,
+        int windup,
+        boolean reverse) {
       this.action = action;
       this.move = move;
       this.forward = forward;
       this.side = side;
       this.up = up;
       this.windup = windup;
+      this.reverse = reverse;
+    }
+
+    static Step reversing(Warden.Action action) {
+      return new Step(action, false, 0, 0, 0, 0, true);
     }
   }
 
+  /**
+   * A fixture: the player starts ahead of a Warden facing +X. From the first warning on, the player
+   * keeps moving steadily: orbiting at a tangential speed, and drifting along the world axes.
+   */
   private static final class Combo {
     final String name;
     final int phase;
@@ -85,6 +108,9 @@ public final class WardenScenario {
     final double up;
     final Step[] steps;
     final Integer[] damage;
+    double orbit;
+    double driftX;
+    double driftZ;
 
     Combo(String name, int phase, double forward, double up, Step[] steps, Integer... damage) {
       this.name = name;
@@ -93,6 +119,13 @@ public final class WardenScenario {
       this.up = up;
       this.steps = steps;
       this.damage = damage;
+    }
+
+    Combo moving(double orbit, double driftX, double driftZ) {
+      this.orbit = orbit;
+      this.driftX = driftX;
+      this.driftZ = driftZ;
+      return this;
     }
   }
 
@@ -105,12 +138,32 @@ public final class WardenScenario {
         new Step[] {new Step(Warden.Action.CLEAVE), new Step(Warden.Action.SLAM)},
         Warden.CLEAVE_DAMAGE,
         Warden.SLAM_DAMAGE),
+    // Lingering behind gets slammed as it turns; rolling behind and then leaving escapes both.
     new Combo(
         "roll-behind",
         1,
         FRONT,
         0,
-        new Step[] {new Step(Warden.Action.CLEAVE, -2.5, 0, 0), new Step(Warden.Action.SLAM)}),
+        new Step[] {
+          new Step(Warden.Action.CLEAVE, -2.5, 0, 0), new Step(Warden.Action.SLAM, -7, 0, 0)
+        }),
+    // Steady circling walks into warnings aimed where the player is heading.
+    new Combo(
+            "orbit-combo",
+            1,
+            FRONT,
+            0,
+            new Step[] {new Step(Warden.Action.CLEAVE), new Step(Warden.Action.SLAM)},
+            Warden.CLEAVE_DAMAGE,
+            Warden.SLAM_DAMAGE)
+        .moving(WALK, 0, 0),
+    new Combo(
+            "orbit-reverse",
+            1,
+            FRONT,
+            0,
+            new Step[] {Step.reversing(Warden.Action.CLEAVE), Step.reversing(Warden.Action.SLAM)})
+        .moving(WALK, 0, 0),
     new Combo(
         "backhand-chain",
         2,
@@ -125,6 +178,20 @@ public final class WardenScenario {
         Warden.SLAM_DAMAGE),
     new Combo("leap-hit", 1, 18, 0, new Step[] {new Step(Warden.Action.LEAP)}, Warden.LEAP_DAMAGE),
     new Combo("leap-dodge", 1, 18, 0, new Step[] {new Step(Warden.Action.LEAP, 18, 7, 0)}),
+    new Combo("leap-kite", 1, 15, 0, new Step[] {new Step(Warden.Action.LEAP)}, Warden.LEAP_DAMAGE)
+        .moving(0, 0, WALK),
+    new Combo("leap-kite-reverse", 1, 15, 0, new Step[] {Step.reversing(Warden.Action.LEAP)})
+        .moving(0, 0, WALK),
+    // Backing away from the Chain Hook stays in its line.
+    new Combo(
+            "kite-hook",
+            1,
+            9,
+            0,
+            new Step[] {new Step(Warden.Action.HOOK), new Step(Warden.Action.SLAM)},
+            Warden.HOOK_DAMAGE,
+            Warden.SLAM_DAMAGE)
+        .moving(0, WALK, 0),
     new Combo(
         "hook-reel-slam",
         1,
@@ -140,7 +207,8 @@ public final class WardenScenario {
         FRONT,
         0,
         new Step[] {
-          new Step(Warden.Action.CLEAVE, false, 0, 0, 0, 11),
+          new Step(
+              Warden.Action.CLEAVE, false, 0, 0, 0, Warden.windup(Warden.Action.CLEAVE, 3), false),
           new Step(Warden.Action.CLEAVE),
           new Step(Warden.Action.CLEAVE),
           new Step(Warden.Action.SLAM)
@@ -177,6 +245,10 @@ public final class WardenScenario {
   private int comboIndex;
   private int step;
   private Warden.Action lastAction;
+  private Step pending;
+  private double orbit;
+  private double driftX;
+  private double driftZ;
   private Cinder diver;
   private int dives;
   private int swarmAtReclaim;
@@ -314,6 +386,10 @@ public final class WardenScenario {
     require(
         damageTaken(arrowAt(world, -FRONT), ARROW_DAMAGE) == ARROW_DAMAGE,
         "Arrows striking the back must land in full");
+    placePlayer(SNIPER_DISTANCE, 0, 0);
+    require(
+        damageTaken(arrowAt(world, -FRONT), ARROW_DAMAGE) == 0,
+        "Shots from beyond the hook's reach must glance off");
     // Pack weapons vary per swing and can bypass the attack event, so the exact rule is proven
     // above and the real weapon only has to be clearly blunted from the front.
     player.inventory.currentItem = bestWeapon();
@@ -335,6 +411,10 @@ public final class WardenScenario {
     placePlayer(combo.forward, 0, combo.up);
     wardenHits.clear();
     step = 0;
+    pending = null;
+    orbit = combo.orbit;
+    driftX = combo.driftX;
+    driftZ = combo.driftZ;
     lastAction = Warden.Action.HUNT;
     ticks = 0;
   }
@@ -364,8 +444,9 @@ public final class WardenScenario {
         playerX = player.posX;
         playerY = player.posY;
         playerZ = player.posZ;
+        orbit = driftX = driftZ = 0;
       }
-      if (isAttack(action)) {
+      if (Warden.isStrike(action)) {
         require(step < combo.steps.length, combo.name + ": unexpected extra " + action);
         Step expected = combo.steps[step];
         require(
@@ -374,12 +455,25 @@ public final class WardenScenario {
         require(
             expected.windup == 0 || boss.getActionTicks() == expected.windup,
             combo.name + ": windup " + boss.getActionTicks());
-        if (expected.move) {
-          placePlayer(expected.forward, expected.side, expected.up);
-        }
+        pending = expected;
         step++;
       }
       lastAction = action;
+    }
+    // Tracking would follow an earlier answer; the player reacts once the warning locks.
+    if (pending != null && boss.isCommitted()) {
+      if (pending.move) {
+        placePlayer(pending.forward, pending.side, pending.up);
+      }
+      if (pending.reverse) {
+        orbit = -orbit;
+        driftX = -driftX;
+        driftZ = -driftZ;
+      }
+      pending = null;
+    }
+    if (step > 0 && action != Warden.Action.REEL) {
+      moveSteadily();
     }
     require(wardenHits.isEmpty() || step > 0, combo.name + ": damage before any warning");
     if (step == combo.steps.length && action == Warden.Action.RECOVER) {
@@ -394,7 +488,9 @@ public final class WardenScenario {
             damageTaken(DamageSource.causePlayerDamage(player), PROBE_DAMAGE) == PROBE_DAMAGE,
             "Finisher recovery must drop the guard");
       }
-      if (combo.steps[0].action == Warden.Action.LEAP && !combo.steps[0].move) {
+      if (combo.steps[0].action == Warden.Action.LEAP
+          && !combo.steps[0].move
+          && !combo.steps[0].reverse) {
         require(
             boss.getDistance(player.posX, boss.posY, player.posZ) < 1.5,
             "Leap must land on its locked target");
@@ -412,6 +508,20 @@ public final class WardenScenario {
       }
     }
     require(ticks < CASE_LIMIT, combo.name + ": timed out at " + action);
+  }
+
+  private void moveSteadily() {
+    if (orbit != 0) {
+      double dx = playerX - boss.posX;
+      double dz = playerZ - boss.posZ;
+      double radius = Math.sqrt(dx * dx + dz * dz);
+      double angle = Math.atan2(dz, dx) + orbit / radius;
+      playerX = boss.posX + Math.cos(angle) * radius;
+      playerZ = boss.posZ + Math.sin(angle) * radius;
+    }
+    playerX += driftX;
+    playerZ += driftZ;
+    pinPlayer();
   }
 
   private void kindle(World world) {
@@ -666,14 +776,6 @@ public final class WardenScenario {
     player.motionX = player.motionY = player.motionZ = 0;
     player.fallDistance = 0;
     player.setPositionAndUpdate(playerX, playerY, playerZ);
-  }
-
-  private static boolean isAttack(Warden.Action action) {
-    return action == Warden.Action.CLEAVE
-        || action == Warden.Action.BACKHAND
-        || action == Warden.Action.SLAM
-        || action == Warden.Action.LEAP
-        || action == Warden.Action.HOOK;
   }
 
   private static double angle(EntityLiving viewer, Entity target) {

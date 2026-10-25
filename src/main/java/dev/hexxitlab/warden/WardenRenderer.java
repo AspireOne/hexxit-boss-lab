@@ -15,6 +15,7 @@ public final class WardenRenderer extends RenderLiving {
   private static final float[] ASH = {1, 0.2F, 0.08F, 1};
   private static final float[] CHAIN = {0.85F, 0.75F, 0.6F, 1};
   private static final float GROUND_LIFT = 0.06F;
+  private static final float TRACKING_ALPHA = 0.3F;
 
   public WardenRenderer() {
     super(new WardenModel(), 1.1F);
@@ -35,8 +36,11 @@ public final class WardenRenderer extends RenderLiving {
       return;
     }
     Warden.Action action = boss.getAction();
+    // A tracking warning is faint; it flares and pulses once it locks.
     float pulse =
-        0.6F + 0.35F * (float) Math.abs(Math.sin((entity.ticksExisted + partialTick) * 0.35));
+        boss.isCommitted() || !Warden.isStrike(action)
+            ? 0.6F + 0.35F * (float) Math.abs(Math.sin((entity.ticksExisted + partialTick) * 0.35))
+            : TRACKING_ALPHA;
     // Locked points are world coordinates; draw them relative to the interpolated entity.
     Vec3 strike = boss.getStrike();
     double sx =

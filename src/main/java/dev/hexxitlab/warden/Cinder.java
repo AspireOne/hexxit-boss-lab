@@ -152,7 +152,9 @@ public final class Cinder extends EntityLiving {
   }
 
   void mark(EntityPlayer player) {
-    Vec3 target = BossCombat.center(player);
+    Vec3 center = BossCombat.center(player);
+    double travel = center.distanceTo(Vec3.createVectorHelper(posX, posY, posZ)) / DIVE_SPEED;
+    Vec3 target = owner.ahead(center, MARK_TICKS + (int) Math.ceil(travel));
     BossCombat.writeFloat(dataWatcher, TARGET_X, target.xCoord);
     BossCombat.writeFloat(dataWatcher, TARGET_Y, target.yCoord);
     BossCombat.writeFloat(dataWatcher, TARGET_Z, target.zCoord);
