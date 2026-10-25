@@ -37,13 +37,16 @@ import net.minecraftforge.event.entity.living.LivingAttackEvent;
 @Mod(
     modid = "hexxitlabharness",
     name = "Boss Lab Smoke Harness",
-    version = "0.5.1",
+    version = "0.5.2",
     dependencies = "required-after:hexxitbosslab")
 public final class SmokeHarness {
   private static final String WORLD = "Kratom - Boss Lab";
   private static final String RUN_TAG = "BossLabSmoke";
   // The integrated server copies difficulty from client options; Normal leaves raw damage unscaled.
   private static final int NORMAL_DIFFICULTY = 2;
+  // Ticks on the death screen before respawning, and alive before a scenario may start.
+  private static final int RESPAWN_DELAY = 25;
+  private static final int READY_TICKS = 60;
   private final Properties request = new Properties();
   private volatile int targetId = -1;
   private volatile int observedHealth = -1;
@@ -61,6 +64,10 @@ public final class SmokeHarness {
   private SovereignScenario sovereign;
   private WardenScenario warden;
   private PracticeScenario practice;
+  private volatile boolean playerReady;
+  private boolean savedDead;
+  private int aliveTicks;
+  private int clientDeathTicks;
   private boolean clientOptionsSaved;
   private boolean originalPauseOnLostFocus;
   private int originalDifficulty;
@@ -128,6 +135,17 @@ public final class SmokeHarness {
     if (serverTicks > 2400) {
       throw new IllegalStateException(
           "Timed out waiting for client entity synchronization at step " + step);
+    }
+    if (!playerReady) {
+      // A save quit on the death screen loads a dead character; the client respawns it, and
+      // practice may then restore its checkpoint. Start only once that has settled.
+      boolean alive = player.getHealth() > 0 && !player.isDead;
+      savedDead |= !alive;
+      aliveTicks = alive ? aliveTicks + 1 : 0;
+      if (savedDead && aliveTicks < READY_TICKS || !alive) {
+        return;
+      }
+      playerReady = true;
     }
     if (practice != null) {
       if (practice.tick(server, player)) {
@@ -314,6 +332,14 @@ public final class SmokeHarness {
         if (!launched && minecraft.currentScreen instanceof GuiMainMenu) {
           launched = true;
           minecraft.launchIntegratedServer(WORLD, WORLD, null);
+        }
+        if (!playerReady
+            && minecraft.thePlayer != null
+            && minecraft.thePlayer.getHealth() <= 0
+            && ++clientDeathTicks == RESPAWN_DELAY) {
+          minecraft.thePlayer.respawnPlayer();
+          minecraft.displayGuiScreen(null);
+          BossLab.LOGGER.info("Smoke respawned a character saved dead");
         }
         if (minecraft.theWorld != null && targetId >= 0) {
           Entity entity = minecraft.theWorld.getEntityByID(targetId);
