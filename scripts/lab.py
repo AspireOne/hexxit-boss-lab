@@ -30,6 +30,8 @@ GAME_PROCESSES = {'java.exe', 'javaw.exe', 'prismlauncher.exe'}
 # Covers Prism startup and Minecraft window creation; later focus changes are the developer's.
 FOCUS_GUARD_SECONDS = 90
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+VK_MENU = 0x12
+KEYEVENTF_KEYUP = 0x2
 # Scenarios that change player state or progress run on a snapshot restored afterwards.
 RESTORED_SCENARIOS = ('sovereign', 'warden', 'practice')
 PROCESS_CHECK = """
@@ -410,6 +412,12 @@ class FocusGuard:
         self.user32.AttachThreadInput(current, thread, True)
         try:
             restored = self.user32.SetForegroundWindow(self.previous)
+            if not restored:
+                # Windows also lets the process that sent the latest input take the foreground.
+                # Alt alone is unbound in Minecraft.
+                self.user32.keybd_event(VK_MENU, 0, 0, 0)
+                self.user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+                restored = self.user32.SetForegroundWindow(self.previous)
         finally:
             self.user32.AttachThreadInput(current, thread, False)
         print('Returned focus from ' + process + (' (ok)' if restored else ' (refused by Windows)'), flush=True)
