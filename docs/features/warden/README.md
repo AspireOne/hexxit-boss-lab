@@ -18,7 +18,7 @@ The intended rhythm: bait a strike, dodge it when its warning locks, then hit it
 
 ## Posture
 
-Clean hits during its openings build posture: hits that are not guarded and land while a strike's warning is locked or during a recovery. At 240 posture it is **STAGGERED** for 4 seconds. Whatever it was winding up is cancelled, its guard is down, and it takes 1.5 times damage. Posture starts draining by 1 per tick after 5 seconds without a clean hit. Its label shows the current posture.
+Clean hits during its openings build posture: hits that are not guarded and land while a strike's warning is locked or during a recovery. At 240 posture it is **STAGGERED** for 4 seconds. Whatever it was winding up is cancelled, its guard is down, and it takes 1.5 times damage. Posture starts draining by 1 per tick after 5 seconds without a clean hit. A slim bar under the boss bar shows posture building, amber and then red-orange near the break; while it is staggered, the bar pulses white-gold and drains with the remaining window. Glowing cracks also spread across its armour as posture builds.
 
 ## Combos
 
@@ -49,9 +49,25 @@ Every combo ends with Slam or Leap, followed by an **EXPOSED** recovery. A Leap 
 
 At 2,400 health it begins **Kindle**: it is warded from all damage for 2 seconds, then raises three Cinders. Through phase two it keeps up to four alive, raising another every 8 seconds.
 
-Cinders orbit you and dive one at a time, conducted by the Warden. A diving Cinder swells and flares bright yellow, with a line toward the point it locked: where you were heading when it flared. Change direction. A dive deals 8 magic damage and burns for 3 seconds. Cinders have 10 health: one sword hit or arrow kills one.
+Cinders orbit you and dive one at a time, conducted by the Warden. A diving Cinder bursts out of its charcoal crust and flares bright yellow, with a glowing corridor through the point it locked: where you were heading when it flared. The corridor runs on past that point, as the dive does. Change direction. A dive deals 8 magic damage and burns for 3 seconds. Cinders have 10 health: one sword hit or arrow kills one.
 
 At 1,000 health it begins **Reclaim**: it is warded again and recalls every Cinder. The red sphere around it is the coming **Ash Nova**. It starts at a radius of 7 and grows by 3 for each Cinder that reaches the Warden, so shoot them down while they fly back. When the swarm is gone, the nova detonates after 1.5 seconds for 60 magic damage. Leave the sphere or put solid cover between you. The guard then shatters: phase three has no guard but the shortest warnings, the longest combos, and a walk faster than your sprint.
+
+## Reading its state
+
+The Warden's body tells you what it is doing; there are no text labels.
+
+| State | What you see |
+| --- | --- |
+| Guarding | Shield squarely in front, amber runes glowing across its face and rim. A guarded hit flares the runes gold and throws sparks off the shield face. |
+| Strike windup | It draws the sword back or the shield in, holding the pose while the warning tracks. |
+| Exposed | The guard is down: the shield hangs at its side, the runes go dark, and the chest core burns brighter. After a Slam or Leap it stays bent over the planted sword. |
+| Staggered | It reels, then kneels on the planted sword with its guard down, smoking, with its cracks blazing. |
+| Kindle, Reclaim, Ash Nova | Warded and channelling: it raises the sword before its face, hovers with arms spread, or hunches while embers spiral in. A pale shell around it shows the ward and flares when struck. |
+| Phase 2 | Embers glow through the armour seams and drift off it. |
+| Phase 3 | The shield is gone, the sword is held two-handed, the visor burns red, and it breathes harder. |
+
+Warnings glow on the ground or in the air and match the hit geometry exactly. A tracking warning is faint, with a dashed, crawling edge, and follows you. A locked warning has a solid, bright edge, pulses, and fills with heat moving outward from its origin until the blow lands; it never moves. The Chain Hook warns with a glowing tube that carries chain links. The Ash Nova warns with a sphere of heat and a ring where it meets the ground; from inside, the air itself is tinted. Each blow lands with a flash of its shape, a shockwave, debris from the ground block, and a scorch mark.
 
 ## Damage and rules
 
@@ -66,6 +82,17 @@ Behaviour and rendering live in the `warden` feature package. Combat is server-o
 Strikes lead with a smoothed estimate of the opponent's horizontal velocity, taken from server positions each tick. The lead is capped at 8 blocks. Jumps of more than 3 blocks in one tick, such as teleports and the Chain Hook's reel, reset the estimate instead of counting as movement. The Slam's ground point aims straight at the heading, while its body turns at the normal rate; a turn-limited Slam lagged behind circling players, so reversing walked back into it.
 
 The Warden walks with vanilla collision, step-up, and gravity: its AI runs in `updateEntityActionState`, which vanilla calls on the server just before travel. Leaps are scripted flights through terrain onto the first solid surface below the locked target. Bosses set `ignoreFrustumCheck`, because their warnings extend far beyond their bodies and would otherwise vanish when you look away from them.
+
+Rendering is client-only and reads the synchronized state; it never feeds back into combat. `WardenModel` holds the rig and `WardenPoses` the pose for each action, blended over a few ticks and planted on the ground. A guarded hit sends entity status 22 so the client can flare the runes; it carries no gameplay. Effects are particles added straight to the effect renderer, because `World.spawnParticle` drops particles more than 16 blocks from the camera. Strike afterglows and scorches draw their own geometry in particle layer 3.
+
+Texture gotchas in 1.5.2:
+
+- Textures load by absolute class-path path through `RenderEngine.bindTexture`, here `/mods/hexxitbosslab/textures/entity/`. Texture packs fall back to the default pack, which searches the class path, so the mod JAR supplies them.
+- The red hurt and death flash redraws the model with texturing off and an equal depth test. The model detects this and skips its glow passes, which would otherwise flash white.
+- Glow layers (embers, phase-three rage, runes, cracks) are extra additive passes at full lightmap brightness, so they stay lit at night. The cracks' alpha channel stores the order in which each crack appears, and an alpha test reveals them as posture rises.
+- Box UVs are packed for a 128 × 128 sheet. Moving or resizing a box means repainting the sheet.
+
+`.\lab.ps1 gallery` photographs the posed Warden, its warnings, effects, and Cinders without combat. It covers every state and phase from several angles, on stone, grass, and snow, by day and night. Use it after visual changes; it snapshots and restores the lab save like the combat scenarios.
 
 `.\lab.ps1 smoke-warden` runs the combat scenario across two launches on a temporary stone platform in daylight. It snapshots the current lab save and restores it afterwards. It checks the guard against deterministic melee and arrow damage plus a real pack weapon, and shots from beyond the hook's reach. It covers each combo branch with hits and dodges taken when the warning locks, the hook reel into a Slam, and phase-three combos and warnings. The [known exploits](../../encounter-design.md#known-exploits) each have a regression: orbiting and backing away get hit, while reversing direction at the lock escapes; teleporting to the Leap's takeoff point is hooked and slammed. Posture builds from recovery hits, and a break staggers it, with heavier blows and no arrow shield. Hammering the shield provokes a Shield Bash, and a blow removes an enchanted golden apple's Regeneration. The swarm cases cover Kindle warding, Cinder dive hits and dodges, Reclaim with a Cinder shot down in flight, and nova radius, hit, and escape; the shattered guard; disengagement; persistence; loot; the one-boss rule; retry; clear; and Peaceful. Geometry probes cancel boss damage at the Forge boundary after recording it. Screenshots of each warning are saved in the run directory.
 

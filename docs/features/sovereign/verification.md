@@ -30,6 +30,10 @@ The circling fixtures follow the moving boss and assert that their player stays 
 
 Inspected the new blast screenshot: the boss health display reads 3,600/3,600 and the orange warning reflects the enlarged radius. The final build passed the full static checks and all 21 workflow tests. Combat testing restored the save present immediately before testing, preserving player progress and supplies.
 
+## Shared warning visuals
+
+Date: 2026-10-26. The Sovereign's warnings now use the glowing style shared with the Warden; no combat value changed. `.\lab.ps1 smoke-boss` passed both launches with evidence in `.lab/runs/20261026-030157-507e218a/`. Its screenshots show the corridors and the Crown Break sphere; from inside the sphere, the view is tinted. Before that tint, a player inside the sphere saw almost nothing of it, because every wall faced the camera.
+
 ## Limits
 
 This establishes compatibility and tested combat behaviour in the installed local pack. The revised balance, fight duration, and enjoyment need another human attempt. Dedicated-server support and arbitrary interactions with every other mod item are outside this acceptance.

@@ -26,9 +26,25 @@ Pack weapons vary per swing and can deliver damage outside the attack event, so 
 
 Screenshots of the Cleave, Slam, Leap, Chain Hook, Reclaim, Exposed, and Cinder warnings were inspected on 0.5.1. They show the model and boss bar and legible locked warnings on stone.
 
+## Visuals
+
+Date: 2026-10-26, version 0.5.3. The model, texture, poses, warnings, effects, and posture bar changed; no combat value did.
+
+`.\lab.ps1 gallery` passed (`20261026-030556-94ca8304`) and its 49 pictures were inspected. They confirm:
+
+- The texture and its glow layers load from the mod JAR through OptiFine.
+- Each state reads at a glance: guard runes and their flare on a guarded hit, the lowered guard when exposed, the stagger kneel with blazing cracks, the warded harrowings, phase-two embers, and the shieldless, red-eyed phase three.
+- Tracking warnings are faint and dashed; locked ones are solid, bright, and filling with heat. Both stay legible on stone, grass, and snow, by day and night.
+- Swing trails, impact flashes, shockwaves, dust, scorches, the nova burst, and the Cinder mark all play.
+- The posture bar fills under the boss bar and pulses while staggered.
+
+On the final build, `.\lab.ps1 smoke-warden` passed both launches with all cases (`20261026-030756-847ec6bf`).
+
+Earlier gallery runs exposed harness flaws, not mod flaws: the camera fell when placed beyond the platform, the client kept the previous shot's time of day, and pictures were taken twice, so the second overwrote brief afterglows. Each is fixed.
+
 ## Regression
 
-On 0.5.2, with the current harness, `.\lab.ps1 smoke-boss` passed (`20261026-001310-1679ac0e`) and `.\lab.ps1 smoke-practice` passed (`20261026-001626-46f08fd3`). On 0.5.0, `.\lab.ps1 smoke` passed (`20261025-205519-85431842`).
+On the final 0.5.3 visual build, `.\lab.ps1 smoke-boss` passed (`20261026-030157-507e218a`) and `.\lab.ps1 smoke` passed (`20261026-031151-34af159e`). On 0.5.2, `.\lab.ps1 smoke-practice` passed (`20261026-001626-46f08fd3`).
 
 ## Limits
 

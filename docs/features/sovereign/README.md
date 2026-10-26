@@ -22,6 +22,8 @@ The Sovereign has **3,600 health** and three phases, starting at full health, 2,
 | Ruin Rush | Pink corridor: leave the route before its charge. Range up to 40 blocks. | 100 physical |
 | Crown Break | Orange sphere: move beyond its 18-block radius or behind solid cover. | 64 magic |
 
+Its warnings share the Warden's [locked style](../warden/README.md#reading-its-state): they fill with heat as the attack approaches and flash as it releases. The sphere also marks where it meets the ground.
+
 Lance and blast bypass ordinary armour defence. Applicable Protection enchantments, potion effects, and Forge damage events still apply. Rush uses normal physical damage handling. Phoenix Feathers retain their resurrection behaviour. Damage numbers are before mitigation and Minecraft difficulty scaling.
 
 The boss alternates lance and rush, with a blast on every third attack when you are within 20 blocks. Fast lateral movement within that range also prompts a blast at the next attack choice, so continuously circling and shooting is dangerous. It never chains two blasts back-to-back. Crown Break still gives its full warning (36 ticks in phase one, 32 in phase three), followed by a recovery window. Break out radially, change altitude beyond the sphere, or take cover.
