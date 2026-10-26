@@ -12,7 +12,7 @@ Run `.\lab.ps1 play`, open **Kratom - Boss Lab**, and choose Easy, Normal, or Ha
 - `/bosslab clear`: immediately remove loaded lab bosses and practice targets in this dimension, without rewards.
 - `/bosslab spawn`: summon the original harmless practice target.
 
-Summoning saves a character checkpoint for [quick rematches](../practice.md) with `/bosslab retry`. Only one lab boss, Sovereign or [Warden](warden.md), can be loaded per dimension. It does not spawn naturally. The original instance and saves are never used for deployment.
+For [quick rematches](../practice.md), save a checkpoint with `/bosslab checkpoint` before summoning. Only one lab boss, Sovereign or [Warden](warden.md), can be loaded per dimension. It does not spawn naturally. The original instance and saves are never used for deployment.
 
 ## Fight
 

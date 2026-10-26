@@ -58,7 +58,7 @@ This is a personal lab rather than a packaged mod: it installs into one local Pr
 .\lab.ps1 play    # build, install, and launch; then /bosslab warden
 ```
 
-In game: `/bosslab warden` or `/bosslab sovereign` to summon, `/bosslab retry` for a rematch, and `/bosslab clear` to end a fight.
+In game: `/bosslab checkpoint` to save your gear, `/bosslab warden` or `/bosslab sovereign` to summon, `/bosslab retry` for a rematch from the checkpoint, and `/bosslab clear` to end a fight. `/bosslab help` lists everything; see [practice rematches](docs/practice.md).
 
 ## How it is built
 

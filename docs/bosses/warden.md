@@ -6,7 +6,7 @@ A grounded, armoured duelist that commands a swarm of Cinders. Where the [Sovere
 
 ## Play
 
-Run `.\lab.ps1 play`, open **Kratom - Boss Lab**, and choose Easy, Normal, or Hard. Find a reasonably open area, then use `/bosslab warden`. It appears on the ground 12 blocks ahead, facing you, and engages after three seconds. `/bosslab status` and `/bosslab clear` work as for the Sovereign. Summoning saves a character checkpoint for [quick rematches](../practice.md); `/bosslab retry` summons a fresh Warden.
+Run `.\lab.ps1 play`, open **Kratom - Boss Lab**, and choose Easy, Normal, or Hard. Find a reasonably open area, then use `/bosslab warden`. It appears on the ground 12 blocks ahead, facing you, and engages after three seconds. `/bosslab status` and `/bosslab clear` work as for the Sovereign. For [quick rematches](../practice.md), save a checkpoint with `/bosslab checkpoint` before summoning.
 
 Only one lab boss can be loaded per dimension. The Warden does not spawn naturally.
 

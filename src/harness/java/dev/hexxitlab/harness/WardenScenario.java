@@ -884,6 +884,7 @@ public final class WardenScenario {
       }
     }
     require(stars == 1, "Player kill must drop one Nether Star");
+    server.getCommandManager().executeCommand(player, "bosslab checkpoint");
     server.getCommandManager().executeCommand(player, "bosslab warden");
     require(count(world, Warden.class) == 1, "A Warden can be summoned after death");
     server.getCommandManager().executeCommand(player, "bosslab sovereign");

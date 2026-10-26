@@ -12,6 +12,16 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.world.World;
 
 public final class LabCommand extends CommandBase {
+  private static final String[] HELP = {
+    "/bosslab warden | sovereign: summon a boss. Never touches your checkpoint.",
+    "/bosslab checkpoint: save your gear, health and position. While one is saved, dying costs"
+        + " nothing: Respawn brings you back to it and removes the boss.",
+    "/bosslab retry: go back to your checkpoint and fight the last boss again.",
+    "/bosslab checkpoint off: delete the checkpoint. Death is real again.",
+    "/bosslab clear: remove the boss. /bosslab status: boss and checkpoint state.",
+    "/bosslab spawn: a harmless practice target."
+  };
+
   // Voldeloom's legacy API jar omits CommandBase's compiler-generated raw bridge.
   @Override
   public int compareTo(Object other) {
@@ -25,7 +35,7 @@ public final class LabCommand extends CommandBase {
 
   @Override
   public String getCommandUsage(ICommandSender sender) {
-    return "/bosslab spawn|sovereign|warden|retry|practice-off|status|clear";
+    return "/bosslab help|warden|sovereign|checkpoint [off]|retry|clear|status|spawn";
   }
 
   @Override
@@ -35,27 +45,44 @@ public final class LabCommand extends CommandBase {
 
   @Override
   public void processCommand(ICommandSender sender, String[] args) {
-    if (args.length != 1) {
-      throw new WrongUsageException(getCommandUsage(sender));
-    }
     EntityPlayerMP player = getCommandSenderAsPlayer(sender);
     World world = player.worldObj;
-    if ("practice-off".equals(args[0])) {
+    String command = args.length == 0 ? "help" : args[0];
+    if (args.length == 2 && "checkpoint".equals(command) && "off".equals(args[1])) {
       PracticeCheckpoint.forget(player);
-      sender.sendChatToPlayer("Practice recovery disabled. Death and drops now behave normally.");
+      sender.sendChatToPlayer("Checkpoint deleted. Death and drops now behave normally.");
       return;
     }
-    if ("retry".equals(args[0])) {
-      if (!PracticeCheckpoint.restore(player)) {
-        sender.sendChatToPlayer("No practice checkpoint yet. Summon a boss first.");
+    if (args.length > 1) {
+      throw new WrongUsageException(getCommandUsage(sender));
+    }
+    if ("help".equals(command)) {
+      for (String line : HELP) {
+        sender.sendChatToPlayer(line);
+      }
+    } else if ("checkpoint".equals(command)) {
+      if (loadedBoss(world)) {
+        sender.sendChatToPlayer(
+            "Finish the fight or /bosslab clear it before saving a checkpoint.");
         return;
       }
-      processCommand(player, new String[] {PracticeCheckpoint.kind(player)});
-      return;
-    }
-    if ("sovereign".equals(args[0]) || "warden".equals(args[0])) {
-      summon(player, args[0]);
-    } else if ("spawn".equals(args[0])) {
+      PracticeCheckpoint.capture(player);
+      sender.sendChatToPlayer(
+          "Checkpoint saved. Dying now brings you back here; /bosslab retry restarts a fight.");
+    } else if ("retry".equals(command)) {
+      if (!PracticeCheckpoint.restore(player)) {
+        sender.sendChatToPlayer("No checkpoint. Save one with /bosslab checkpoint first.");
+        return;
+      }
+      String kind = PracticeCheckpoint.kind(player);
+      sender.sendChatToPlayer(
+          "Back at your checkpoint." + (kind == null ? " Summon a boss to fight." : ""));
+      if (kind != null) {
+        summon(player, kind);
+      }
+    } else if ("sovereign".equals(command) || "warden".equals(command)) {
+      summon(player, command);
+    } else if ("spawn".equals(command)) {
       LabTarget target = new LabTarget(world);
       target.setPosition(player.posX + 2, player.posY + 1, player.posZ);
       if (!world.spawnEntityInWorld(target)) {
@@ -63,14 +90,14 @@ public final class LabCommand extends CommandBase {
       }
       BossLab.LOGGER.info("Lab target spawned: " + target.getPersistentID());
       sender.sendChatToPlayer("Spawned Lab Target (40 health).");
-    } else if ("status".equals(args[0]) || "clear".equals(args[0])) {
+    } else if ("status".equals(command) || "clear".equals(command)) {
       int count = 0;
       Object[] entities = world.loadedEntityList.toArray();
       for (Object entity : entities) {
         if ((entity instanceof LabTarget || entity instanceof LabBoss)
             && !((Entity) entity).isDead) {
           count++;
-          if ("clear".equals(args[0])) {
+          if ("clear".equals(command)) {
             ((Entity) entity).setDead();
           } else if (entity instanceof LabBoss) {
             sender.sendChatToPlayer(((LabBoss) entity).describe());
@@ -78,12 +105,27 @@ public final class LabCommand extends CommandBase {
         }
       }
       sender.sendChatToPlayer(
-          ("clear".equals(args[0]) ? "Cleared " : "Loaded ")
+          ("clear".equals(command) ? "Cleared " : "Loaded ")
               + count
               + " lab entities in this dimension.");
+      if ("status".equals(command)) {
+        sender.sendChatToPlayer(
+            PracticeCheckpoint.exists(player)
+                ? "Checkpoint saved. Dying brings you back to it."
+                : "No checkpoint. Death is real.");
+      }
     } else {
       throw new WrongUsageException(getCommandUsage(sender));
     }
+  }
+
+  private static boolean loadedBoss(World world) {
+    for (Object entity : world.loadedEntityList) {
+      if (entity instanceof LabBoss && !((Entity) entity).isDead) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static void summon(EntityPlayerMP player, String kind) {
@@ -92,11 +134,9 @@ public final class LabCommand extends CommandBase {
       player.sendChatToPlayer("Set difficulty to Easy, Normal or Hard before summoning.");
       return;
     }
-    for (Object entity : world.loadedEntityList) {
-      if (entity instanceof LabBoss && !((Entity) entity).isDead) {
-        player.sendChatToPlayer("A lab boss is already loaded. Use /bosslab clear to remove it.");
-        return;
-      }
+    if (loadedBoss(world)) {
+      player.sendChatToPlayer("A lab boss is already loaded. Use /bosslab clear to remove it.");
+      return;
     }
     double yaw = Math.toRadians(player.rotationYaw);
     Entity boss;
@@ -115,14 +155,12 @@ public final class LabCommand extends CommandBase {
     if (!world.spawnEntityInWorld(boss)) {
       throw new IllegalStateException(kind + " spawn rejected");
     }
-    try {
-      PracticeCheckpoint.capture(player, boss, kind);
-    } catch (RuntimeException error) {
-      boss.setDead();
-      throw error;
-    }
     BossLab.LOGGER.info("Boss summoned: " + kind + " " + boss.getPersistentID());
-    player.sendChatToPlayer(
-        "Checkpoint saved. Click Respawn after death to recover your gear. /bosslab retry restarts the fight.");
+    if (PracticeCheckpoint.attach(player, boss, kind)) {
+      player.sendChatToPlayer("Boss summoned. Dying brings you back to your checkpoint.");
+    } else {
+      player.sendChatToPlayer(
+          "Boss summoned. No checkpoint: death is real. /bosslab help explains practice.");
+    }
   }
 }

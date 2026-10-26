@@ -60,7 +60,7 @@ These were found by running in the real pack and are easy to break:
 
 Setup copies **Hexxit 1.0.11 OptiFine** to **Hexxit Boss Lab** under Prism's instances directory. It copies its mods, coremods, configuration, resources, jar patches, and Java settings. Writable game files are independent copies. Screenshots, logs, and unrelated saves are excluded.
 
-The source save is **Kratom - Inventory restored 2026-10-15**, whose internal `LastPlayed` timestamp was newest when selected. The copy's directory and internal display name are **Kratom - Boss Lab**. The NBT edit changes only `Data.LevelName`; inventory and all other saved fields retain their original bytes.
+The source save is the folder **Kratom - Inventory restored 2026-10-15**, shown in game as **My World**. The lab world and baseline were last refreshed from it on 2026-10-26. The copy's directory and internal display name are **Kratom - Boss Lab**. The NBT edit changes only `Data.LevelName`; inventory and all other saved fields retain their original bytes.
 
 Every `apply` turns off Damage Indicators' health portrait in the lab instance's configuration. When the portrait's last target leaves the world, it returns each frame without popping the OpenGL stacks it pushed. Full stacks never drain, so every entity drawn afterwards jitters until the game restarts. The original instance keeps the portrait and the bug.
 

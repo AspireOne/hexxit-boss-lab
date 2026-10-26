@@ -78,8 +78,8 @@ public final class PracticeScenario {
         stage = 4;
       } else {
         server.getCommandManager().executeCommand(player, "bosslab clear");
-        server.getCommandManager().executeCommand(player, "bosslab practice-off");
-        require(!PracticeCheckpoint.exists(player), "Practice-off must remove checkpoint");
+        server.getCommandManager().executeCommand(player, "bosslab checkpoint off");
+        require(!PracticeCheckpoint.exists(player), "Checkpoint off must remove checkpoint");
         x = player.posX;
         y = 220;
         z = player.posZ;
@@ -103,7 +103,13 @@ public final class PracticeScenario {
             .getCompoundTag(EntityPlayer.PERSISTED_NBT_TAG)
             .setCompoundTag(EXPECTED, expected);
         server.getCommandManager().executeCommand(player, "bosslab sovereign");
-        require(PracticeCheckpoint.exists(player), "Summoning must capture a checkpoint");
+        require(!PracticeCheckpoint.exists(player), "Summoning must not save a checkpoint");
+        server.getCommandManager().executeCommand(player, "bosslab checkpoint");
+        require(!PracticeCheckpoint.exists(player), "A checkpoint must not be saved mid-fight");
+        server.getCommandManager().executeCommand(player, "bosslab clear");
+        server.getCommandManager().executeCommand(player, "bosslab checkpoint");
+        require(PracticeCheckpoint.exists(player), "The checkpoint command must save one");
+        server.getCommandManager().executeCommand(player, "bosslab sovereign");
         damageEquipment(player);
         player.setPositionAndUpdate(x + 6, y, z);
         server.getCommandManager().executeCommand(player, "bosslab retry");
@@ -175,7 +181,7 @@ public final class PracticeScenario {
       }
     } else if (stage == 4 && clientRestored) {
       server.getCommandManager().executeCommand(player, "bosslab clear");
-      server.getCommandManager().executeCommand(player, "bosslab practice-off");
+      server.getCommandManager().executeCommand(player, "bosslab checkpoint off");
       require(!PracticeCheckpoint.exists(player), "Opt-out must persistently remove checkpoint");
       require(!PracticeCheckpoint.restore(player), "Missing checkpoint must not alter the player");
       BossLab.LOGGER.info(

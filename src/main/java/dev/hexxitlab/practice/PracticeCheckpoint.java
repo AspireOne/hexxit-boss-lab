@@ -41,14 +41,13 @@ public final class PracticeCheckpoint implements ITickHandler {
     return exists(player) && persisted(player).getCompoundTag(KEY).getBoolean("PendingRespawn");
   }
 
-  /** The summon command that starts this checkpoint's rematch. */
+  /** The summon command for the last boss fought from this checkpoint, or null before any. */
   public static String kind(EntityPlayer player) {
     NBTTagCompound checkpoint = persisted(player).getCompoundTag(KEY);
-    // Checkpoints saved before the second boss carry no kind; only the Sovereign existed then.
-    return checkpoint.hasKey("Kind") ? checkpoint.getString("Kind") : "sovereign";
+    return checkpoint.hasKey("Kind") ? checkpoint.getString("Kind") : null;
   }
 
-  public static void capture(EntityPlayerMP player, Entity boss, String kind) {
+  public static void capture(EntityPlayerMP player) {
     if (!player.isEntityAlive() || player.ridingEntity != null || player.isPlayerSleeping()) {
       throw new IllegalStateException(
           "Practice checkpoint requires an alive, awake, unmounted player");
@@ -67,11 +66,24 @@ public final class PracticeCheckpoint implements ITickHandler {
     checkpoint.setDouble("Z", player.posZ);
     checkpoint.setFloat("Yaw", player.rotationYaw);
     checkpoint.setFloat("Pitch", player.rotationPitch);
-    checkpoint.setString("Boss", boss.getPersistentID().toString());
-    checkpoint.setString("Kind", kind);
     persisted(player).setCompoundTag(KEY, checkpoint);
     player.mcServer.getConfigurationManager().saveAllPlayerData();
     BossLab.LOGGER.info("Practice checkpoint saved for " + player.username);
+  }
+
+  /**
+   * Records a newly summoned boss as this checkpoint's fight, so retry rematches it and a restore
+   * removes it. Returns false when there is no checkpoint.
+   */
+  public static boolean attach(EntityPlayerMP player, Entity boss, String kind) {
+    if (!exists(player)) {
+      return false;
+    }
+    NBTTagCompound checkpoint = persisted(player).getCompoundTag(KEY);
+    checkpoint.setString("Boss", boss.getPersistentID().toString());
+    checkpoint.setString("Kind", kind);
+    player.mcServer.getConfigurationManager().saveAllPlayerData();
+    return true;
   }
 
   public static void forget(EntityPlayer player) {
@@ -151,7 +163,6 @@ public final class PracticeCheckpoint implements ITickHandler {
     checkpoint.setBoolean("PendingRespawn", false);
     persisted(player).setCompoundTag(KEY, checkpoint);
     player.mcServer.getConfigurationManager().saveAllPlayerData();
-    player.sendChatToPlayer("Practice checkpoint restored. /bosslab retry starts a fresh rematch.");
     BossLab.LOGGER.info("Practice checkpoint restored for " + player.username);
     return true;
   }
@@ -195,6 +206,11 @@ public final class PracticeCheckpoint implements ITickHandler {
       EntityPlayerMP player = (EntityPlayerMP) value;
       if (player.isEntityAlive() && awaitingRecovery(player)) {
         restore(player);
+        player.sendChatToPlayer(
+            "Back at your checkpoint. "
+                + (kind(player) == null
+                    ? "Summon a boss to fight."
+                    : "/bosslab retry fights again."));
       }
     }
   }
