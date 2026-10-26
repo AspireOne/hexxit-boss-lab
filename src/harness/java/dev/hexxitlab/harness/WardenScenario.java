@@ -53,6 +53,11 @@ public final class WardenScenario {
   private static final int APPLE_TICKS = 600;
   private static final int APPLE_LEVEL = 3;
   private static final double SNIPER_DISTANCE = Warden.HOOK_RANGE + 4;
+  // A free Warden settles in reach; clients interpolate over three ticks, so it must stand still
+  // longer than that before positions compare. Packets carry positions in 32nds of a block.
+  private static final double SYNC_DISTANCE = 4.5;
+  private static final int SETTLE_TICKS = 10;
+  private static final double SYNC_TOLERANCE = 1.0 / 16;
   // A player's walking speed in blocks per tick.
   private static final double WALK = 0.216;
   private static final String[] PICTURES = {
@@ -315,6 +320,16 @@ public final class WardenScenario {
   private int dives;
   private int swarmAtReclaim;
   private boolean cinderShot;
+  private volatile boolean clientHitRequested;
+  private volatile boolean clientHitDone;
+  private volatile double clientX = Double.NaN;
+  private volatile double clientY = Double.NaN;
+  private volatile double clientZ = Double.NaN;
+  private double lastX;
+  private double lastY;
+  private double lastZ;
+  private int stillTicks;
+  private int hitTick;
 
   WardenScenario(String run, String phase, File directory) {
     this.run = run;
@@ -367,7 +382,7 @@ public final class WardenScenario {
         stage = 20;
       } else {
         buildPlatform(world);
-        stage = 1;
+        stage = 30;
       }
       ticks = 0;
       return false;
@@ -379,7 +394,14 @@ public final class WardenScenario {
       pinPlayer();
     }
     player.extinguish();
-    if (stage == 1) {
+    if (stage == 30) {
+      boss = spawn(world, 1, Warden.MAX_HEALTH);
+      placePlayer(SYNC_DISTANCE, 0, 0);
+      ticks = 0;
+      stage = 31;
+    } else if (stage == 31) {
+      tickSync();
+    } else if (stage == 1) {
       guard(world);
       comboIndex = 0;
       startCombo(world);
@@ -426,6 +448,46 @@ public final class WardenScenario {
       return true;
     }
     return false;
+  }
+
+  /**
+   * A Warden that walks on its first tick leaves clients offset by that step. Clients must see it
+   * where the server has it, at spawn and after a hit through the real client attack path.
+   */
+  private void tickSync() {
+    boolean still = boss.posX == lastX && boss.posY == lastY && boss.posZ == lastZ;
+    stillTicks = still ? stillTicks + 1 : 0;
+    lastX = boss.posX;
+    lastY = boss.posY;
+    lastZ = boss.posZ;
+    if (stillTicks >= SETTLE_TICKS) {
+      if (!clientHitRequested) {
+        requireSynced("at spawn");
+        clientHitRequested = true;
+      } else if (clientHitDone && hitTick == 0) {
+        hitTick = ticks;
+      } else if (hitTick > 0 && ticks - hitTick >= SETTLE_TICKS) {
+        requireSynced("after a hit");
+        BossLab.LOGGER.info("Warden combat PASS: client-sync");
+        boss.setDead();
+        stage = 1;
+      }
+    }
+    require(ticks < CASE_LIMIT, "Client sync timed out at " + boss.getAction());
+  }
+
+  private void requireSynced(String when) {
+    double error =
+        Math.max(
+            Math.abs(clientX - boss.posX),
+            Math.max(Math.abs(clientY - boss.posY), Math.abs(clientZ - boss.posZ)));
+    require(
+        error <= SYNC_TOLERANCE,
+        "Clients must see the Warden where the server has it "
+            + when
+            + ": off by "
+            + error
+            + " blocks");
   }
 
   /** Guard maths with deterministic sources, then the same rule through the real weapon. */
@@ -945,6 +1007,15 @@ public final class WardenScenario {
       Warden visible = (Warden) entity;
       observedHealth = visible.getHealth();
       observedActions |= 1 << visible.getAction().ordinal();
+      clientX = visible.posX;
+      clientY = visible.posY;
+      clientZ = visible.posZ;
+      if (clientHitRequested && !clientHitDone && minecraft.thePlayer != null) {
+        // The real input path: the client swings, then the server judges the packet.
+        minecraft.thePlayer.swingItem();
+        minecraft.playerController.attackEntity(minecraft.thePlayer, visible);
+        clientHitDone = true;
+      }
     }
   }
 

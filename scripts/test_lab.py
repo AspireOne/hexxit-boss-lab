@@ -17,6 +17,17 @@ class LabWorkflowTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 
+    def test_damage_portrait_is_disabled_without_touching_other_settings(self):
+        config = self.root / 'config'
+        config.mkdir()
+        original = ('popups {\r\n    B:Enabled=true\r\n}\r\nportrait {\r\n    behavior {\r\n'
+                    '        B:DebugHidesWindow=true\r\n        B:Enable=true\r\n    }\r\n}\r\n')
+        path = config / lab.DAMAGE_INDICATORS_CONFIG
+        path.write_bytes(original.encode('utf-8'))
+        lab.disable_damage_portrait(config)
+        lab.disable_damage_portrait(config)
+        self.assertEqual(original.replace('B:Enable=true', 'B:Enable=false').encode('utf-8'), path.read_bytes())
+
     def test_combat_restore_recovers_exact_save_and_retains_exercised_world(self):
         target = self.root / 'instance'
         world = target / 'minecraft/saves/Test'

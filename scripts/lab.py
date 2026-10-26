@@ -26,12 +26,20 @@ WORLD = 'Kratom - Boss Lab'
 MARKER = '.hexxit-boss-lab.json'
 MOD_FILE = 'hexxit-boss-lab.jar'
 HARNESS_FILE = 'hexxit-boss-lab-harness.jar'
+DAMAGE_INDICATORS_CONFIG = 'DamageIndicatorsMod.cfg'
 GAME_PROCESSES = {'java.exe', 'javaw.exe', 'prismlauncher.exe'}
 # Covers Prism startup and Minecraft window creation; later focus changes are the developer's.
 FOCUS_GUARD_SECONDS = 90
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 VK_MENU = 0x12
 KEYEVENTF_KEYUP = 0x2
+# Prism's legacy wrapper hosts the game in a frame titled after the instance; test runs park
+# that process's windows far outside every monitor.
+GAME_WINDOW_TITLE = 'Prism Launcher: ' + TARGET.name
+OFFSCREEN = -16000
+SWP_NOSIZE = 0x1
+SWP_NOZORDER = 0x4
+SWP_NOACTIVATE = 0x10
 # Scenarios that change player state or progress run on a snapshot restored afterwards.
 RESTORED_SCENARIOS = ('sovereign', 'warden', 'practice', 'gallery')
 PROCESS_CHECK = """
@@ -307,11 +315,26 @@ def install_artifact(artifact, mods, history):
     return incoming_hash
 
 
+def disable_damage_portrait(config):
+    """Damage Indicators' portrait leaks OpenGL stacks once its last target leaves the world.
+
+    The full stacks never drain, so every entity drawn afterwards jitters until restart.
+    """
+    path = config / DAMAGE_INDICATORS_CONFIG
+    require_child(path, config)
+    lines = path.read_text(encoding='utf-8', newline='').splitlines(keepends=True)
+    section = next(i for i, line in enumerate(lines) if line.strip() == 'portrait {')
+    flag = next(i for i in range(section, len(lines)) if lines[i].strip().startswith('B:Enable='))
+    lines[flag] = lines[flag].replace('B:Enable=true', 'B:Enable=false')
+    path.write_text(''.join(lines), encoding='utf-8', newline='')
+
+
 def apply():
     validate_lab()
     ensure_stopped()
     artifact = checked_artifact()
     ensure_stopped()
+    disable_damage_portrait(TARGET / 'minecraft/config')
     result = install_artifact(artifact, TARGET / 'minecraft/mods', STATE / 'artifacts')
     harness = TARGET / 'minecraft/mods' / HARNESS_FILE
     require_child(harness, TARGET)
@@ -353,11 +376,13 @@ def reset_world():
     print('World restored; previous state retained at ' + str(snapshot))
 
 
-class FocusGuard:
-    """Hands foreground focus taken by a test launch back to the window the developer was using.
+class WindowGuard:
+    """Keeps test launches out of the developer's way.
 
-    Only launch-time takeovers are reverted: after FOCUS_GUARD_SECONDS, a deliberate click into
-    the game to watch a run is left alone.
+    The game window is moved off-screen for the whole run; Windows composites every window, so it
+    still renders and screenshots still work. Foreground focus taken by a launch is handed back to
+    the window the developer was using, so typing never lands in the hidden game. Prism's own
+    windows are never moved, because Prism remembers their positions for normal use.
     """
 
     def __init__(self):
@@ -368,6 +393,13 @@ class FocusGuard:
         self.user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
         self.user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
         self.user32.IsWindow.argtypes = (wintypes.HWND,)
+        self.user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+        self.user32.GetWindowTextW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+        self.user32.GetWindowRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
+        self.user32.SetWindowPos.argtypes = (
+            wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+        self.enum_callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        self.user32.EnumWindows.argtypes = (self.enum_callback, wintypes.LPARAM)
         self.kernel32.OpenProcess.restype = wintypes.HANDLE
         self.kernel32.QueryFullProcessImageNameW.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD))
         self.kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
@@ -378,6 +410,16 @@ class FocusGuard:
     def arm(self):
         self.until = time.monotonic() + FOCUS_GUARD_SECONDS
         self.check()
+
+    def window_process(self, window):
+        process = self.wintypes.DWORD()
+        self.user32.GetWindowThreadProcessId(window, ctypes.byref(process))
+        return process.value
+
+    def window_title(self, window):
+        title = ctypes.create_unicode_buffer(256)
+        self.user32.GetWindowTextW(window, title, 256)
+        return title.value
 
     def window_owner(self, window):
         process = self.wintypes.DWORD()
@@ -394,7 +436,28 @@ class FocusGuard:
         finally:
             self.kernel32.CloseHandle(handle)
 
+    def hide_game(self):
+        """Moves every visible window of the game process off-screen without activating it."""
+        windows = []
+
+        def collect(window, _):
+            if self.user32.IsWindowVisible(window):
+                windows.append(window)
+            return True
+
+        self.user32.EnumWindows(self.enum_callback(collect), 0)
+        game = {self.window_process(window) for window in windows if self.window_title(window) == GAME_WINDOW_TITLE}
+        for window in windows:
+            if self.window_process(window) not in game:
+                continue
+            rect = self.wintypes.RECT()
+            if self.user32.GetWindowRect(window, ctypes.byref(rect)) and rect.left != OFFSCREEN:
+                moved = self.user32.SetWindowPos(window, None, OFFSCREEN, OFFSCREEN, 0, 0,
+                                                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)
+                print('Moved the game window off-screen' + ('' if moved else ' (refused by Windows)'), flush=True)
+
     def check(self):
+        self.hide_game()
         window = self.user32.GetForegroundWindow()
         if not window:
             return
@@ -468,7 +531,7 @@ def smoke(scenario='target', phases=('create', 'reload')):
         shutil.copytree(world, snapshot)
         write_json(run / 'world-before-hashes.json', tree_hashes(snapshot))
     succeeded = False
-    focus = FocusGuard()
+    focus = WindowGuard()
     try:
         # Two real game launches exercise the world persistence boundary; the gallery needs one.
         for phase in phases:

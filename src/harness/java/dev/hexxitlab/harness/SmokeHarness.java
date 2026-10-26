@@ -28,6 +28,7 @@ import net.minecraft.util.DamageSource;
 import net.minecraft.util.ScreenShotHelper;
 import net.minecraft.world.World;
 import net.minecraft.world.storage.ThreadedFileIOBase;
+import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.EventPriority;
 import net.minecraftforge.event.ForgeSubscribe;
@@ -47,7 +48,9 @@ public final class SmokeHarness {
   // Ticks on the death screen before respawning, and alive before a scenario may start.
   private static final int RESPAWN_DELAY = 25;
   private static final int READY_TICKS = 60;
+  private static final int RUN_LIMIT_TICKS = 3000;
   private final Properties request = new Properties();
+  private final GlProbe gl = new GlProbe();
   private volatile int targetId = -1;
   private volatile int observedHealth = -1;
   private volatile boolean finished;
@@ -127,6 +130,11 @@ public final class SmokeHarness {
     }
   }
 
+  @ForgeSubscribe
+  public void worldRendered(RenderWorldLastEvent event) {
+    GlProbe.check("world end");
+  }
+
   private void serverTick() {
     MinecraftServer server = MinecraftServer.getServer();
     if (server == null || server.getConfigurationManager().playerEntityList.isEmpty() || finished) {
@@ -135,7 +143,7 @@ public final class SmokeHarness {
     EntityPlayerMP player =
         (EntityPlayerMP) server.getConfigurationManager().playerEntityList.get(0);
     serverTicks++;
-    if (serverTicks > 2400) {
+    if (serverTicks > RUN_LIMIT_TICKS) {
       throw new IllegalStateException(
           "Timed out waiting for client entity synchronization at step " + step);
     }
@@ -257,6 +265,9 @@ public final class SmokeHarness {
   }
 
   private void writeResult() throws IOException {
+    if (failure == null) {
+      failure = GlProbe.failure();
+    }
     Properties result = new Properties();
     result.setProperty("status", failure == null ? "PASS" : "FAIL");
     result.setProperty("run", request.getProperty("run"));
@@ -286,12 +297,18 @@ public final class SmokeHarness {
   }
 
   private final class ClientTicks implements ITickHandler {
-    public void tickStart(EnumSet<TickType> types, Object... data) {}
+    public void tickStart(EnumSet<TickType> types, Object... data) {
+      if (types.contains(TickType.RENDER)) {
+        gl.install();
+        GlProbe.frameStarted();
+      }
+    }
 
     public void tickEnd(EnumSet<TickType> types, Object... data) {
       Minecraft minecraft = Minecraft.getMinecraft();
       try {
         if (types.contains(TickType.RENDER)) {
+          GlProbe.check("frame end");
           if (sovereign != null) {
             sovereign.render(minecraft);
             return;

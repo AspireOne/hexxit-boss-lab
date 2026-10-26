@@ -53,6 +53,7 @@ These were found by running in the real pack and are easy to break:
 - Minecraft 1.5.2's ray tracer mutates its input vector. Copy vectors at that boundary (`BossCombat.trace`), or cover checks corrupt locked warnings.
 - `Vec3.subtract(b)` returns `b - this`, the reverse of what its name suggests.
 - The `DataWatcher` has no float type; `BossCombat` stores floats as their integer bits.
+- A mod entity that moves on its first server tick is drawn offset by that step on clients. FML's spawn packet carries the moved position, and the tracker also sends the step as a relative move. The offset lasts until the tracker's forced resync, about every 20 seconds, so bosses stand still on their first tick.
 - `IntegratedServer` copies the client's difficulty option every tick, so a world's difficulty cannot be set directly. On Hard, mob damage arrives ×1.5 before any Forge event observes it.
 
 ## Instance and save boundaries
@@ -60,6 +61,8 @@ These were found by running in the real pack and are easy to break:
 Setup copies **Hexxit 1.0.11 OptiFine** to **Hexxit Boss Lab** under Prism's instances directory. It copies its mods, coremods, configuration, resources, jar patches, and Java settings. Writable game files are independent copies. Screenshots, logs, and unrelated saves are excluded.
 
 The source save is **Kratom - Inventory restored 2026-10-15**, whose internal `LastPlayed` timestamp was newest when selected. The copy's directory and internal display name are **Kratom - Boss Lab**. The NBT edit changes only `Data.LevelName`; inventory and all other saved fields retain their original bytes.
+
+Every `apply` turns off Damage Indicators' health portrait in the lab instance's configuration. When the portrait's last target leaves the world, it returns each frame without popping the OpenGL stacks it pushed. Full stacks never drain, so every entity drawn afterwards jitters until the game restarts. The original instance keeps the portrait and the bug.
 
 The instance marker and `.lab/instance.json` identify the managed destination. Operations reject unrecognized destinations and linked paths. The lab sets `-Dhexxitlab.enabled=true` to enable its commands. The development harness additionally requires the instance marker and an explicit smoke request.
 

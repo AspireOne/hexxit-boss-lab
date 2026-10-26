@@ -489,8 +489,10 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
 
   @Override
   public void moveEntityWithHeading(float strafe, float forward) {
-    // Clients follow server positions; leaps are scripted flight through terrain.
-    if (!worldObj.isRemote && getAction() != Action.AIRBORNE) {
+    // Clients follow server positions; leaps are scripted flight through terrain. On its first
+    // tick the tracker's spawn packet already carries the new position and would also send the
+    // step as a relative move, leaving clients offset by it until the next forced resync.
+    if (!worldObj.isRemote && getAction() != Action.AIRBORNE && ticksExisted > 1) {
       super.moveEntityWithHeading(strafe, forward);
     }
   }
