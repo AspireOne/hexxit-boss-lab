@@ -11,6 +11,7 @@ import net.minecraft.entity.boss.IBossDisplayData;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.Item;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.potion.Potion;
 import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.EntityDamageSource;
@@ -42,6 +43,15 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   public static final double NOVA_GROWTH = 3;
   public static final int CLEAVE_DAMAGE = 30;
   public static final int BACKHAND_DAMAGE = 24;
+  public static final int BASH_DAMAGE = 36;
+  public static final double BASH_RADIUS = 3.5;
+  public static final double BASH_ARC = 60;
+  // Guarded melee hits within this many ticks of each other that provoke a Shield Bash.
+  public static final int BASH_PROVOCATION = 3;
+  private static final int BASH_PROVOCATION_TICKS = 40;
+  private static final int BASH_RECOVERY = 16;
+  private static final double BASH_KNOCKBACK = 1.6;
+  private static final double BASH_LIFT = 0.4;
   public static final int SLAM_DAMAGE = 50;
   public static final int LEAP_DAMAGE = 40;
   public static final int HOOK_DAMAGE = 12;
@@ -97,6 +107,8 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private static final int[] CLEAVE_COMMIT = {12, 11, 9};
   // The Backhand punishes standing behind it; it never tracks.
   private static final int[] BACKHAND_WINDUP = {12, 11, 9};
+  // A reflex: locked from the start, like the Backhand.
+  private static final int[] BASH_WINDUP = {10, 9, 8};
   private static final int[] SLAM_WINDUP = {24, 21, 18};
   private static final int[] SLAM_COMMIT = {18, 16, 14};
   // The landing locks shortly before takeoff; the flight adds to the reaction window.
@@ -128,6 +140,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     CHAIN,
     CLEAVE,
     BACKHAND,
+    BASH,
     SLAM,
     LEAP,
     AIRBORNE,
@@ -153,6 +166,8 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private int diveTimer;
   private int ash;
   private int postureIdle;
+  private int guardedStreak;
+  private int lastGuardedTick;
   private Vec3 travelStart;
   private EntityPlayer tracked;
   private double trackedX;
@@ -331,6 +346,8 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
         return CLEAVE_WINDUP;
       case BACKHAND:
         return BACKHAND_WINDUP;
+      case BASH:
+        return BASH_WINDUP;
       case SLAM:
         return SLAM_WINDUP;
       case LEAP:
@@ -348,6 +365,8 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
         return CLEAVE_COMMIT;
       case BACKHAND:
         return BACKHAND_WINDUP;
+      case BASH:
+        return BASH_WINDUP;
       case SLAM:
         return SLAM_COMMIT;
       case LEAP:
@@ -394,6 +413,9 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
         return false;
       }
       amount = guarded(amount);
+      if (!worldObj.isRemote) {
+        provoke();
+      }
     } else if (getAction() == Action.STAGGER) {
       amount = Math.round(amount * STAGGER_MULTIPLIER);
     }
@@ -403,6 +425,23 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
       buildPosture(amount);
     }
     return landed;
+  }
+
+  /**
+   * Hammering the raised shield is answered with a Shield Bash unless a strike is already locked.
+   */
+  private void provoke() {
+    if (ticksExisted - lastGuardedTick > BASH_PROVOCATION_TICKS) {
+      guardedStreak = 0;
+    }
+    lastGuardedTick = ticksExisted;
+    Action action = getAction();
+    boolean free =
+        action == Action.HUNT || action == Action.CHAIN || (isStrike(action) && !isCommitted());
+    if (++guardedStreak >= BASH_PROVOCATION && free && opponent != null) {
+      guardedStreak = 0;
+      lock(Action.BASH);
+    }
   }
 
   /** Locked windups and recoveries: the moments a clean hit builds toward a posture break. */
@@ -531,6 +570,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
         break;
       case CLEAVE:
       case BACKHAND:
+      case BASH:
       case SLAM:
       case LEAP:
       case HOOK:
@@ -646,6 +686,10 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     if (action == Action.CLEAVE) {
       turnToward(heading.xCoord, heading.zCoord, TURN_RATE[getPhase() - 1]);
       yaw = rotationYaw;
+    } else if (action == Action.BASH) {
+      // Provoked from the front, so this squares the shield up rather than spinning round.
+      yaw = yawToward(heading.xCoord, heading.zCoord);
+      rotationYaw = (float) yaw;
     } else if (action == Action.SLAM) {
       // The body turns at its usual rate, but the ground strike never lags behind the opponent.
       turnToward(heading.xCoord, heading.zCoord, TURN_RATE[getPhase() - 1]);
@@ -728,6 +772,15 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
           cleave ? CLEAVE_DAMAGE : BACKHAND_DAMAGE);
       playSound("mob.enderdragon.wings", 2, 1.4F);
       changeAction(Action.CHAIN, COMBO_GAP[phase]);
+    } else if (action == Action.BASH) {
+      double yaw = getStrikeYaw();
+      for (EntityPlayer player : sweep(yaw, BASH_ARC, BASH_RADIUS, BASH_DAMAGE)) {
+        player.addVelocity(
+            forwardX(yaw) * BASH_KNOCKBACK, BASH_LIFT, forwardZ(yaw) * BASH_KNOCKBACK);
+        player.velocityChanged = true;
+      }
+      playSound("random.anvil_land", 2, 0.5F);
+      changeAction(Action.RECOVER, BASH_RECOVERY);
     } else if (action == Action.SLAM) {
       impact(getStrike(), SLAM_RADIUS, SLAM_DAMAGE);
       changeAction(Action.RECOVER, FINISHER_RECOVERY[phase]);
@@ -848,7 +901,9 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
         : null;
   }
 
-  private void sweep(double yaw, double arc, double radius, int damage) {
+  /** Strikes every opponent in the wedge and returns them. */
+  private List<EntityPlayer> sweep(double yaw, double arc, double radius, int damage) {
+    List<EntityPlayer> struck = new ArrayList<EntityPlayer>();
     for (Object value : worldObj.playerEntities) {
       EntityPlayer player = (EntityPlayer) value;
       if (BossCombat.isOpponent(this, player, ENGAGE_RANGE)
@@ -858,8 +913,10 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
               <= arc
           && BossCombat.unobstructed(worldObj, chest(), BossCombat.center(player))) {
         strike(player, this, damage, false);
+        struck.add(player);
       }
     }
+    return struck;
   }
 
   /** Strikes every opponent in the circle; returns whether the current opponent was caught. */
@@ -1052,6 +1109,8 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   }
 
   static void strike(EntityPlayer player, Entity source, int damage, boolean ash) {
+    // Ash smothers regeneration, so a golden apple cannot out-heal standing in its blows.
+    player.removePotionEffect(Potion.regeneration.id);
     player.attackEntityFrom(new WardenDamage(source, ash), damage);
   }
 

@@ -72,6 +72,10 @@ public final class WardenRenderer extends RenderLiving {
             cleave ? Warden.CLEAVE_ARC : Warden.BACKHAND_ARC,
             cleave ? Warden.CLEAVE_RADIUS : Warden.BACKHAND_RADIUS,
             tint(EMBER, pulse));
+      } else if (action == Warden.Action.BASH) {
+        GL11.glTranslated(x, y + GROUND_LIFT, z);
+        Telegraphs.sector(
+            boss.getStrikeYaw(), Warden.BASH_ARC, Warden.BASH_RADIUS, tint(EMBER, pulse));
       } else if (action == Warden.Action.SLAM
           || action == Warden.Action.LEAP
           || action == Warden.Action.AIRBORNE) {
@@ -113,6 +117,9 @@ public final class WardenRenderer extends RenderLiving {
         break;
       case BACKHAND:
         text = "BACKHAND - back off";
+        break;
+      case BASH:
+        text = "SHIELD BASH - get clear";
         break;
       case SLAM:
         text = "SLAM - leave the circle";
@@ -263,6 +270,7 @@ public final class WardenRenderer extends RenderLiving {
           break;
         case HOOK:
         case REEL:
+        case BASH:
           shieldArm.rotateAngleX = -1.5F;
           break;
         case RECOVER:

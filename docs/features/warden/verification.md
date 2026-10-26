@@ -1,15 +1,16 @@
 # Warden runtime acceptance
 
-Target: the marked local lab, Minecraft 1.5.2 / Forge 7.8.1.737, with its existing Java 8 runtime and installed Hexxit mods. Date: 2026-10-26, version 0.5.2. The source save had been quit on the death screen; the harness respawned the character and the practice checkpoint restored its loadout.
+Target: the marked local lab, Minecraft 1.5.2 / Forge 7.8.1.737, with its existing Java 8 runtime and installed Hexxit mods. Date: 2026-10-26, version 0.5.3. An earlier 0.5.2 run started from a save quit on the death screen; the harness respawned the character and the practice checkpoint restored its loadout.
 
 ## Combat
 
-`.\lab.ps1 smoke-warden` passed both launches, with evidence in `.lab/runs/20261026-000935-2509d5ca/`. The run summary passed, and `world-restored.json` confirms restoration of the exact starting save.
+`.\lab.ps1 smoke-warden` passed both launches, with evidence in `.lab/runs/20261026-005646-17910c99/`. The run summary passed, and `world-restored.json` confirms restoration of the exact starting save. The run reports 0.5.2 because the version bump came after it; no behaviour changed.
 
-Twenty-three cases passed:
+Twenty-four cases passed:
 
 - **Guard:** deterministic melee damage from the front and back; frontal arrows stopped by the shield; arrows judged by where they strike; shots from beyond the hook's reach glance off; hits outside openings build no posture.
 - **Posture:** a recovery hit builds posture; a full bar staggers the Warden, which then takes 1.5 times damage and no longer shields arrows.
+- **Counters:** three guarded melee hits provoke a Shield Bash that hits for 36; a Warden blow removes an enchanted golden apple's Regeneration IV.
 - **Combos:** front combo; rolling behind a Cleave, then leaving before the turning Slam; Backhand chain; Leap hit; Leap dodge followed by a dodged Chain Hook; Chain Hook reel into Slam; Chain Hook dodge; phase-three four-step combo with 14-tick warnings.
 - **Exploit regressions:** a walking orbit is hit by the Cleave and Slam, and reversing at each lock escapes both. A walking strafe is hit by the Leap; reversing at the lock escapes it, and sidestepping escapes the Chain Hook that follows. Teleporting to the Leap's takeoff point is hooked and slammed. Backing away from the Chain Hook stays in its line and is reeled into a Slam.
 - **Swarm:** Kindle warding and three raised Cinders; Cinder dive hit and dodge; Reclaim with one Cinder shot in flight, nova radius, hit, and shattered guard; nova escape.
@@ -27,7 +28,7 @@ Screenshots of the Cleave, Slam, Leap, Chain Hook, Reclaim, Exposed, and Cinder 
 
 ## Regression
 
-On 0.5.2's harness, `.\lab.ps1 smoke-boss` passed (`20261026-001310-1679ac0e`) and `.\lab.ps1 smoke-practice` passed (`20261026-001626-46f08fd3`). On 0.5.0, `.\lab.ps1 smoke` passed (`20261025-205519-85431842`).
+On 0.5.2, with the current harness, `.\lab.ps1 smoke-boss` passed (`20261026-001310-1679ac0e`) and `.\lab.ps1 smoke-practice` passed (`20261026-001626-46f08fd3`). On 0.5.0, `.\lab.ps1 smoke` passed (`20261025-205519-85431842`).
 
 ## Limits
 

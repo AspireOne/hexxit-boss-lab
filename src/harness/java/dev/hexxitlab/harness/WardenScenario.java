@@ -22,6 +22,8 @@ import net.minecraft.entity.projectile.EntityArrow;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.potion.Potion;
+import net.minecraft.potion.PotionEffect;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.ScreenShotHelper;
@@ -48,6 +50,8 @@ public final class WardenScenario {
   private static final int FRAMING_FRAMES = 6;
   private static final int ARROW_DAMAGE = 24;
   private static final int HOTBAR_SIZE = 9;
+  private static final int APPLE_TICKS = 600;
+  private static final int APPLE_LEVEL = 3;
   private static final double SNIPER_DISTANCE = Warden.HOOK_RANGE + 4;
   // A player's walking speed in blocks per tick.
   private static final double WALK = 0.216;
@@ -120,6 +124,7 @@ public final class WardenScenario {
     double orbit;
     double driftX;
     double driftZ;
+    boolean mash;
 
     Combo(String name, int phase, double forward, double up, Step[] steps, Integer... damage) {
       this.name = name;
@@ -128,6 +133,12 @@ public final class WardenScenario {
       this.up = up;
       this.steps = steps;
       this.damage = damage;
+    }
+
+    /** The player hammers the raised shield before the Warden's first attack. */
+    Combo mashing() {
+      this.mash = true;
+      return this;
     }
 
     Combo moving(double orbit, double driftX, double driftZ) {
@@ -148,6 +159,14 @@ public final class WardenScenario {
         Warden.CLEAVE_DAMAGE,
         Warden.SLAM_DAMAGE),
     // Lingering behind gets slammed as it turns; rolling behind and then leaving escapes both.
+    new Combo(
+            "shield-bash",
+            1,
+            FRONT,
+            0,
+            new Step[] {new Step(Warden.Action.BASH)},
+            Warden.BASH_DAMAGE)
+        .mashing(),
     new Combo(
         "roll-behind",
         1,
@@ -453,6 +472,10 @@ public final class WardenScenario {
     }
     boss = spawn(world, combo.phase, Warden.MAX_HEALTH);
     placePlayer(combo.forward, 0, combo.up);
+    if (comboIndex == 0) {
+      // An enchanted golden apple's Regeneration IV, for the first blow to smother.
+      player.addPotionEffect(new PotionEffect(Potion.regeneration.id, APPLE_TICKS, APPLE_LEVEL));
+    }
     wardenHits.clear();
     step = 0;
     pending = null;
@@ -469,6 +492,12 @@ public final class WardenScenario {
     if (step == 0 && action == Warden.Action.HUNT) {
       // Stable fixtures: unconstrained pursuit is exercised by the swarm stages.
       boss.setPosition(cx, PLATFORM_Y, cz);
+      if (combo.mash && ticks == 2) {
+        for (int hit = 0; hit < Warden.BASH_PROVOCATION; hit++) {
+          damageTaken(DamageSource.causePlayerDamage(player), PROBE_DAMAGE);
+        }
+        action = boss.getAction();
+      }
     }
     if (action != lastAction) {
       if (lastAction == Warden.Action.REEL) {
@@ -538,6 +567,8 @@ public final class WardenScenario {
         require(
             damageTaken(DamageSource.causePlayerDamage(player), PROBE_DAMAGE) == PROBE_DAMAGE,
             "Finisher recovery must drop the guard");
+        require(
+            !player.isPotionActive(Potion.regeneration), "Warden blows must smother regeneration");
         posture(world);
       }
       if (combo.steps[0].action == Warden.Action.LEAP
