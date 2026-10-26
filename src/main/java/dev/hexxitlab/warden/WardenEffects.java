@@ -21,6 +21,7 @@ final class WardenEffects {
   private static final int SLASH_TICKS = 5;
   private static final int BURST_TICKS = 9;
   private static final int EMBER_LIFE = 30;
+  private static final int DUST_PUFFS = 24;
   private static final double SCORCH_SHARE = 0.85;
   // Where the shield face sits, in blocks from the Warden's centre.
   private static final double SHIELD_REACH = 1.3;
@@ -249,10 +250,11 @@ final class WardenEffects {
                 life(rand)));
       }
     }
-    for (int i = 0; i < 24; i++) {
-      double angle = i * Math.PI / 12;
+    // A ring of pale dust thrown outward from the blow.
+    for (int i = 0; i < DUST_PUFFS; i++) {
+      double angle = i * Math.PI * 2 / DUST_PUFFS;
       world.spawnParticle(
-          "largesmoke",
+          "explode",
           point.xCoord + Math.cos(angle) * radius * 0.6,
           point.yCoord + 0.2,
           point.zCoord + Math.sin(angle) * radius * 0.6,
@@ -260,7 +262,6 @@ final class WardenEffects {
           0.05,
           Math.sin(angle) * 0.2);
     }
-    world.spawnParticle("largeexplode", point.xCoord, point.yCoord + 0.5, point.zCoord, 0, 0, 0);
   }
 
   /** The Ash Nova bursts and the shield shatters into flying shards. */
