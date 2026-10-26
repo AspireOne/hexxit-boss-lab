@@ -45,12 +45,19 @@ public final class Telegraphs {
   /** How a warning looks this frame. Progress runs from 0 to 1: to impact, or through a fade. */
   public static final class Warning {
     final float[] rgb;
+    final float[] heat;
     final Style style;
     final float progress;
     final float time;
 
     public Warning(float[] rgb, Style style, float progress, float time) {
+      this(rgb, HOT, style, progress, time);
+    }
+
+    /** A warning whose locked fill and impact flash glow with the given heat, not white-hot. */
+    public Warning(float[] rgb, float[] heat, Style style, float progress, float time) {
       this.rgb = rgb.clone();
+      this.heat = heat.clone();
       this.style = style;
       this.progress = Math.max(0, Math.min(1, progress));
       this.time = time;
@@ -108,7 +115,7 @@ public final class Telegraphs {
     int segments = Math.max(8, (int) Math.ceil(SEGMENTS * arc / 180));
     float strength = w.strength();
     float fill = w.style == Style.TRACKING ? 0.16F : w.style == Style.LOCKED ? 0.3F : 0.55F;
-    float[] tone = w.style == Style.IMPACT ? HOT : w.rgb;
+    float[] tone = w.style == Style.IMPACT ? w.heat : w.rgb;
     // Mottled, edge-weighted fill reads as scorched ground rather than a flat sticker.
     for (int ring = 0; ring < RINGS; ring++) {
       double r0 = radius * ring / RINGS;
@@ -124,8 +131,8 @@ public final class Telegraphs {
     if (w.style == Style.LOCKED) {
       // The fill races from the origin to the edge: when it arrives, the strike lands.
       double front = radius * w.progress;
-      band(yaw, arc, Math.max(0, front - RIM * 2), front, segments, HOT, 0, 0.55F);
-      band(yaw, arc, 0, front, segments, HOT, 0.14F, 0.14F);
+      band(yaw, arc, Math.max(0, front - RIM * 2), front, segments, w.heat, 0, 0.55F);
+      band(yaw, arc, 0, front, segments, w.heat, 0.14F, 0.14F);
     }
     if (w.style != Style.TRACKING) {
       band(yaw, arc, radius - RIM, radius, segments, tone, 0, 0.7F * strength);
@@ -193,7 +200,7 @@ public final class Telegraphs {
   private static void edge(double[][] points, boolean closed, Warning w) {
     boolean dashed = w.style == Style.TRACKING;
     float strength = w.strength();
-    float[] bright = brighten(w.style == Style.IMPACT ? HOT : w.rgb);
+    float[] bright = brighten(w.style == Style.IMPACT ? w.heat : w.rgb);
     GL11.glLineWidth(dashed ? 4 : 7);
     polyline(points, closed, dashed, w.time, SHADOW, 0.5F * strength);
     GL11.glLineWidth(dashed ? 2 : 3.5F);
@@ -256,7 +263,7 @@ public final class Telegraphs {
     Vec3 side = direction.crossProduct(reference).normalize();
     Vec3 up = direction.crossProduct(side).normalize();
     float strength = w.strength();
-    float[] tone = w.style == Style.IMPACT ? HOT : w.rgb;
+    float[] tone = w.style == Style.IMPACT ? w.heat : w.rgb;
     float[] eye = eyeMatrix();
     int steps = Math.max(2, (int) Math.ceil(length));
     for (int s = 0; s < steps; s++) {
@@ -319,7 +326,7 @@ public final class Telegraphs {
     float[] tone = rgb;
     if (w.style == Style.LOCKED && t <= w.progress) {
       // The tube fills from the origin towards its end as the strike approaches.
-      tone = HOT;
+      tone = w.heat;
       alpha += 0.12F + (w.progress - t < 0.08 ? 0.3F : 0);
     }
     GL11.glColor4f(tone[0], tone[1], tone[2], alpha);
@@ -376,10 +383,10 @@ public final class Telegraphs {
   public static void dome(double radius, double floor, Warning w) {
     float[] eye = eyeMatrix();
     float strength = w.strength();
-    float[] tone = w.style == Style.IMPACT ? HOT : w.rgb;
+    float[] tone = w.style == Style.IMPACT ? w.heat : w.rgb;
     shell(radius, tone, strength, w, eye, 1);
     if (w.style == Style.LOCKED && w.progress > 0) {
-      shell(radius * w.progress, HOT, strength, w, eye, 0.6F);
+      shell(radius * w.progress, w.heat, strength, w, eye, 0.6F);
     }
     double plane = floor - BossCombat.PLAYER_CENTER_HEIGHT;
     if (floor > 0 && plane < radius) {
