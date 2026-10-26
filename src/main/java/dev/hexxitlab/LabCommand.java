@@ -106,7 +106,7 @@ public final class LabCommand extends CommandBase {
       double z = player.posZ + Math.cos(yaw) * 12;
       boss = new Warden(world);
       boss.setLocationAndAngles(
-          x, Warden.groundBelow(world, x, player.posY + 6, z), z, player.rotationYaw + 180, 0);
+          x, BossCombat.groundBelow(world, x, player.posY + 6, z), z, player.rotationYaw + 180, 0);
     } else {
       boss = new Sovereign(world);
       boss.setPosition(

@@ -3,6 +3,7 @@ package dev.hexxitlab;
 import net.minecraft.entity.DataWatcher;
 import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.util.MathHelper;
 import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.util.Vec3;
 import net.minecraft.world.World;
@@ -10,6 +11,8 @@ import net.minecraft.world.World;
 /** Targeting and strike geometry shared by lab bosses. Combat is server-owned. */
 public final class BossCombat {
   public static final double PLAYER_HIT_RADIUS = 0.45;
+  // Height of a player's body centre above its feet, where strikes aim and hit.
+  public static final double PLAYER_CENTER_HEIGHT = 0.9;
 
   private BossCombat() {}
 
@@ -22,7 +25,7 @@ public final class BossCombat {
   }
 
   public static Vec3 center(EntityPlayer player) {
-    return Vec3.createVectorHelper(player.posX, player.posY + 0.9, player.posZ);
+    return Vec3.createVectorHelper(player.posX, player.posY + PLAYER_CENTER_HEIGHT, player.posZ);
   }
 
   public static MovingObjectPosition trace(World world, Vec3 start, Vec3 end) {
@@ -57,6 +60,18 @@ public final class BossCombat {
     double y = start.yCoord + t * dy - point.yCoord;
     double z = start.zCoord + t * dz - point.zCoord;
     return x * x + y * y + z * z <= radius * radius;
+  }
+
+  /** Feet height on the first surface at or below y, or y itself over a void. */
+  public static double groundBelow(World world, double x, double y, double z) {
+    int bx = MathHelper.floor_double(x);
+    int bz = MathHelper.floor_double(z);
+    for (int by = MathHelper.floor_double(y); by >= Math.max(0, (int) y - 32); by--) {
+      if (world.doesBlockHaveSolidTopSurface(bx, by, bz)) {
+        return by + 1;
+      }
+    }
+    return y;
   }
 
   /** The legacy DataWatcher has no float type; floats travel as their raw int bits. */

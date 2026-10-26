@@ -60,6 +60,9 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   public static final int KINDLE_CINDERS = 3;
   private static final byte IMPACT_EFFECT = 20;
   private static final byte NOVA_EFFECT = 21;
+  private static final byte GUARD_EFFECT = 22;
+  // Ticks a deflected hit lights the shield runes.
+  private static final int GUARD_FLASH_TICKS = 8;
   private static final double GUARD_ARC = 70;
   private static final double SLAM_REACH = 3;
   public static final double HOOK_RANGE = 22;
@@ -81,21 +84,21 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private static final double LEAP_HEIGHT = 5;
   private static final double CHAIN_SPEED = 1.25;
   private static final double ENGAGE_RANGE = 128;
-  private static final int LEAP_AIRTIME = 16;
+  public static final int LEAP_AIRTIME = 16;
   private static final int REEL_TICKS = 6;
   private static final int HOOK_MISS_RECOVERY = 24;
   private static final int NOVA_RECOVERY = 40;
   // Clean hits during openings build posture; a full bar staggers it, open to heavier blows.
   public static final int POSTURE_LIMIT = 240;
   public static final float STAGGER_MULTIPLIER = 1.5F;
-  private static final int STAGGER_TICKS = 80;
+  public static final int STAGGER_TICKS = 80;
   // Posture drains one point per tick once it has gone this long without a clean hit.
   private static final int POSTURE_GRACE = 100;
   private static final int STUCK_TICKS = 40;
   private static final int HOOK_COOLDOWN = 160;
   private static final int KINDLE_TICKS = 40;
   private static final int RECLAIM_LIMIT = 120;
-  private static final int NOVA_WINDUP = 30;
+  public static final int NOVA_WINDUP = 30;
   private static final int SWARM_SIZE = 4;
   private static final int RAISE_INTERVAL = 160;
   private static final int DIVE_INTERVAL = 50;
@@ -174,6 +177,11 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private double trackedZ;
   private double velocityX;
   private double velocityZ;
+  // Client presentation only: the action being shown, since when, and what it followed.
+  private Action shownAction = Action.HUNT;
+  private Action previousAction = Action.HUNT;
+  private int actionAge;
+  private int guardFlash;
 
   public Warden(World world) {
     super(world);
@@ -185,7 +193,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     renderDistanceWeight = 8;
     // Warnings extend far beyond the body; keep drawing them when the body is off-screen.
     ignoreFrustumCheck = true;
-    texture = "/mob/enderman.png";
+    texture = "/mods/hexxitbosslab/textures/entity/warden.png";
   }
 
   @Override
@@ -388,26 +396,20 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
       return false;
     }
     if (isWarded() && source != DamageSource.outOfWorld) {
-      if (!worldObj.isRemote) {
-        playSound("random.anvil_land", 0.6F, 1.6F);
-      }
+      deflect(0.6F, 1.6F);
       return false;
     }
     // It can answer from anywhere it can be hurt: shots from beyond its hook's reach glance off.
     Entity shooter = source.getEntity();
     if (source.isProjectile() && shooter != null && getDistanceToEntity(shooter) > HOOK_RANGE) {
-      if (!worldObj.isRemote) {
-        playSound("random.anvil_land", 0.6F, 1.6F);
-      }
+      deflect(0.6F, 1.6F);
       return false;
     }
     // Projectiles are judged by where they strike, not by where the shooter stands.
     Entity striker = source.getSourceOfDamage();
     boolean guarding = !isExposed() && striker != null && Math.abs(angleTo(striker)) <= GUARD_ARC;
     if (guarding) {
-      if (!worldObj.isRemote) {
-        playSound("random.anvil_land", 0.4F, 1.8F);
-      }
+      deflect(0.4F, 1.8F);
       // The shield stops shots outright: the bow pays only from behind or into an opening.
       if (source.isProjectile()) {
         return false;
@@ -425,6 +427,14 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
       buildPosture(amount);
     }
     return landed;
+  }
+
+  /** A clank, and a flare of the shield runes or ward on clients. */
+  private void deflect(float volume, float pitch) {
+    if (!worldObj.isRemote) {
+      playSound("random.anvil_land", volume, pitch);
+      worldObj.setEntityState(this, GUARD_EFFECT);
+    }
   }
 
   /**
@@ -491,16 +501,19 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     fallDistance = 0;
     if (worldObj.isRemote) {
       setEntityHealth(dataWatcher.getWatchableObjectInt(HEALTH));
-      if (rand.nextInt(getPhase() == 3 ? 1 : 4) == 0) {
-        worldObj.spawnParticle(
-            "flame",
-            posX + (rand.nextDouble() - 0.5) * width,
-            posY + CHEST_HEIGHT + (rand.nextDouble() - 0.5),
-            posZ + (rand.nextDouble() - 0.5) * width,
-            0,
-            0.03,
-            0);
+      Action action = getAction();
+      if (action == shownAction) {
+        actionAge++;
+      } else {
+        previousAction = shownAction;
+        shownAction = action;
+        actionAge = 0;
+        WardenEffects.changed(this, previousAction, action);
       }
+      if (guardFlash > 0) {
+        guardFlash--;
+      }
+      WardenEffects.ambient(this);
       return;
     }
     dataWatcher.updateObject(HEALTH, Integer.valueOf(getHealth()));
@@ -699,7 +712,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     } else if (action == Action.LEAP) {
       x = heading.xCoord;
       z = heading.zCoord;
-      y = groundBelow(worldObj, x, opponent.posY, z);
+      y = BossCombat.groundBelow(worldObj, x, opponent.posY, z);
       yaw = yawToward(x, z);
       rotationYaw = (float) yaw;
     } else if (action == Action.HOOK) {
@@ -1081,18 +1094,6 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     return Vec3.createVectorHelper(posX, posY + CHEST_HEIGHT, posZ);
   }
 
-  /** Feet height on the first surface at or below y, or y itself over a void. */
-  public static double groundBelow(World world, double x, double y, double z) {
-    int bx = MathHelper.floor_double(x);
-    int bz = MathHelper.floor_double(z);
-    for (int by = MathHelper.floor_double(y); by >= Math.max(0, (int) y - 32); by--) {
-      if (world.doesBlockHaveSolidTopSurface(bx, by, bz)) {
-        return by + 1;
-      }
-    }
-    return y;
-  }
-
   private void setPhase(int phase) {
     dataWatcher.updateObject(PHASE, Integer.valueOf(phase));
   }
@@ -1117,37 +1118,34 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   @Override
   public void handleHealthUpdate(byte status) {
     if (status == IMPACT_EFFECT) {
-      Vec3 point = getStrike();
-      for (int i = 0; i < 24; i++) {
-        double angle = i * Math.PI / 12;
-        worldObj.spawnParticle(
-            "largesmoke",
-            point.xCoord + Math.cos(angle) * 2,
-            point.yCoord + 0.2,
-            point.zCoord + Math.sin(angle) * 2,
-            Math.cos(angle) * 0.2,
-            0.05,
-            Math.sin(angle) * 0.2);
-      }
-      worldObj.spawnParticle(
-          "hugeexplosion", point.xCoord, point.yCoord + 0.5, point.zCoord, 0, 0, 0);
+      WardenEffects.impact(this, getStrike());
     } else if (status == NOVA_EFFECT) {
-      for (int i = 0; i < 160; i++) {
-        double yaw = rand.nextDouble() * Math.PI * 2;
-        double pitch = (rand.nextDouble() - 0.5) * Math.PI;
-        double speed = 0.6 + rand.nextDouble() * 0.6;
-        worldObj.spawnParticle(
-            i % 3 == 0 ? "lava" : "flame",
-            posX,
-            posY + CHEST_HEIGHT,
-            posZ,
-            Math.cos(yaw) * Math.cos(pitch) * speed,
-            Math.sin(pitch) * speed,
-            Math.sin(yaw) * Math.cos(pitch) * speed);
-      }
+      WardenEffects.nova(this);
+    } else if (status == GUARD_EFFECT) {
+      guardFlash = GUARD_FLASH_TICKS;
+      WardenEffects.deflect(this);
     } else {
       super.handleHealthUpdate(status);
     }
+  }
+
+  /** The action clients are showing; it lags the synchronized action by at most a tick. */
+  Action getShownAction() {
+    return shownAction;
+  }
+
+  Action getPreviousAction() {
+    return previousAction;
+  }
+
+  /** Client ticks since the shown action began. */
+  int getActionAge() {
+    return actionAge;
+  }
+
+  /** From 1 just after a deflected hit, fading to 0. */
+  float getGuardFlash(float partialTick) {
+    return Math.max(0, guardFlash - partialTick) / GUARD_FLASH_TICKS;
   }
 
   @Override

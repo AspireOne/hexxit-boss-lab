@@ -343,9 +343,14 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData, L
     BossCombat.writeFloat(dataWatcher, AIM_Y, end.yCoord - start.yCoord);
     BossCombat.writeFloat(dataWatcher, AIM_Z, end.zCoord - start.zCoord);
     dataWatcher.updateObject(IMPACT, Integer.valueOf(Action.HUNT.ordinal()));
-    int windup = attack == Action.BLAST ? 36 : attack == Action.RUSH ? 26 : 24;
-    changeAction(attack, windup - (getPhase() - 1) * 2);
+    changeAction(attack, windup(attack, getPhase()));
     worldObj.playSoundAtEntity(this, "mob.wither.idle", 2, attack == Action.BLAST ? 0.5F : 1.5F);
+  }
+
+  /** Warning ticks before an attack fires: every attack's warning is locked from the start. */
+  public static int windup(Action attack, int phase) {
+    int windup = attack == Action.BLAST ? 36 : attack == Action.RUSH ? 26 : 24;
+    return windup - (phase - 1) * 2;
   }
 
   private boolean movingLaterally() {

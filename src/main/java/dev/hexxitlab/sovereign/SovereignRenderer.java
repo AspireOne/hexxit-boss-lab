@@ -1,5 +1,6 @@
 package dev.hexxitlab.sovereign;
 
+import dev.hexxitlab.BossCombat;
 import dev.hexxitlab.Telegraphs;
 import net.minecraft.client.model.ModelBase;
 import net.minecraft.client.model.ModelRenderer;
@@ -10,6 +11,14 @@ import net.minecraft.entity.boss.BossStatus;
 import org.lwjgl.opengl.GL11;
 
 public final class SovereignRenderer extends RenderLiving {
+  private static final float[] BLAST = {1, 0.35F, 0.05F};
+  private static final float[] LANCE = {0.7F, 0.2F, 1};
+  private static final float[] RUSH = {1, 0.2F, 1};
+  // Recovery lengths set by the Sovereign after a blast and a lance.
+  private static final int BLAST_RECOVERY = 28;
+  private static final int LANCE_RECOVERY = 20;
+  private static final int IMPACT_TICKS = 5;
+
   public SovereignRenderer() {
     super(new SovereignModel(), 1.2F);
   }
@@ -28,39 +37,63 @@ public final class SovereignRenderer extends RenderLiving {
     if (!boss.isEntityAlive()) {
       return;
     }
-    GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+    Sovereign.Action action = boss.getAction();
+    float time = entity.ticksExisted + partialTick;
+    float remaining = Math.max(0, boss.getActionTicks() - partialTick);
+    Telegraphs.Warning warning;
+    if (action == Sovereign.Action.RECOVER
+        && boss.getImpact() != Sovereign.Action.HUNT
+        && boss.getActionTicks() > recovery(boss.getImpact()) - IMPACT_TICKS) {
+      // The attack just fired: its shape flashes and fades.
+      action = boss.getImpact();
+      warning =
+          new Telegraphs.Warning(
+              color(action),
+              Telegraphs.Style.IMPACT,
+              (recovery(action) - remaining) / IMPACT_TICKS,
+              time);
+    } else if (action == Sovereign.Action.BLAST
+        || action == Sovereign.Action.LANCE
+        || action == Sovereign.Action.RUSH) {
+      warning =
+          new Telegraphs.Warning(
+              color(action),
+              Telegraphs.Style.LOCKED,
+              1 - remaining / Sovereign.windup(action, boss.getPhase()),
+              time);
+    } else {
+      return;
+    }
     GL11.glPushMatrix();
+    Telegraphs.begin();
     try {
       GL11.glTranslated(x, y + Sovereign.CENTER_HEIGHT, z);
-      GL11.glDisable(GL11.GL_TEXTURE_2D);
-      GL11.glDisable(GL11.GL_LIGHTING);
-      GL11.glEnable(GL11.GL_BLEND);
-      GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-      GL11.glDepthMask(false);
-      GL11.glLineWidth(2);
-      Sovereign.Action action = boss.getAction();
-      boolean impact =
-          action == Sovereign.Action.RECOVER
-              && boss.getActionTicks() >= (boss.getImpact() == Sovereign.Action.BLAST ? 23 : 15);
-      if (impact) {
-        action = boss.getImpact();
-        GL11.glLineWidth(5);
-      }
-      float alpha =
-          0.55F + 0.35F * (float) Math.abs(Math.sin((entity.ticksExisted + partialTick) * 0.35));
       if (action == Sovereign.Action.BLAST) {
-        GL11.glColor4f(1, 0.35F, 0.05F, alpha);
-        Telegraphs.sphere(Sovereign.BLAST_RADIUS);
-      } else if (action == Sovereign.Action.LANCE || action == Sovereign.Action.RUSH) {
-        GL11.glColor4f(action == Sovereign.Action.LANCE ? 0.7F : 1, 0.2F, 1, alpha);
+        double centre = entity.posY + Sovereign.CENTER_HEIGHT;
+        double ground = BossCombat.groundBelow(entity.worldObj, entity.posX, centre, entity.posZ);
+        Telegraphs.dome(Sovereign.BLAST_RADIUS, centre - ground, warning);
+      } else {
         Telegraphs.corridor(
             boss.getAim(),
-            action == Sovereign.Action.LANCE ? Sovereign.LANCE_RADIUS : Sovereign.RUSH_RADIUS);
+            action == Sovereign.Action.LANCE ? Sovereign.LANCE_RADIUS : Sovereign.RUSH_RADIUS,
+            false,
+            warning);
       }
     } finally {
+      Telegraphs.end();
       GL11.glPopMatrix();
-      GL11.glPopAttrib();
     }
+  }
+
+  private static float[] color(Sovereign.Action action) {
+    return action == Sovereign.Action.BLAST
+        ? BLAST
+        : action == Sovereign.Action.LANCE ? LANCE : RUSH;
+  }
+
+  /** Recovery ticks after an attack that leaves an impact; the flash plays at its start. */
+  private static int recovery(Sovereign.Action impact) {
+    return impact == Sovereign.Action.BLAST ? BLAST_RECOVERY : LANCE_RECOVERY;
   }
 
   @Override

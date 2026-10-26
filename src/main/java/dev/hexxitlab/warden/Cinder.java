@@ -21,7 +21,7 @@ public final class Cinder extends EntityLiving {
   private static final double ORBIT_SPEED = 0.5;
   private static final double ORBIT_TURN = 0.06;
   private static final double DIVE_SPEED = 1;
-  private static final double DIVE_OVERSHOOT = 2;
+  public static final double DIVE_OVERSHOOT = 2;
   private static final double RECALL_SPEED = 0.3;
   private static final double ABSORB_DISTANCE = 1.5;
   private static final double OWNER_RANGE = 128;
@@ -43,6 +43,9 @@ public final class Cinder extends EntityLiving {
   private double diveRemaining;
   private Vec3 diveDirection;
   private boolean diveHit;
+  // Client presentation only: the state being shown and for how many ticks.
+  private State shownState = State.ORBIT;
+  private int stateAge;
 
   public Cinder(World world) {
     super(world);
@@ -146,6 +149,11 @@ public final class Cinder extends EntityLiving {
         BossCombat.readFloat(dataWatcher, TARGET_Z));
   }
 
+  /** Client ticks the current state has been shown. */
+  int getStateAge() {
+    return stateAge;
+  }
+
   boolean isAttacking() {
     State state = getState();
     return state == State.MARK || state == State.DIVE;
@@ -172,17 +180,10 @@ public final class Cinder extends EntityLiving {
     super.onLivingUpdate();
     motionX = motionY = motionZ = 0;
     if (worldObj.isRemote) {
-      int flames = getState() == State.MARK ? 4 : 1;
-      for (int i = 0; i < flames; i++) {
-        worldObj.spawnParticle(
-            "flame",
-            posX + (rand.nextDouble() - 0.5) * 0.4 * flames,
-            posY + 0.3 + (rand.nextDouble() - 0.5) * 0.4 * flames,
-            posZ + (rand.nextDouble() - 0.5) * 0.4 * flames,
-            0,
-            0.01,
-            0);
-      }
+      State state = getState();
+      stateAge = state == shownState ? stateAge + 1 : 0;
+      shownState = state;
+      WardenEffects.cinder(this);
     }
   }
 

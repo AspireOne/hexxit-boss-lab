@@ -5,11 +5,13 @@ import dev.hexxitlab.sovereign.Sovereign;
 import dev.hexxitlab.sovereign.SovereignRenderer;
 import dev.hexxitlab.warden.Cinder;
 import dev.hexxitlab.warden.CinderRenderer;
+import dev.hexxitlab.warden.PostureBar;
 import dev.hexxitlab.warden.Warden;
 import dev.hexxitlab.warden.WardenRenderer;
 import net.minecraft.client.model.ModelBiped;
 import net.minecraft.client.renderer.entity.RenderLiving;
 import net.minecraft.entity.EntityLiving;
+import net.minecraftforge.common.MinecraftForge;
 
 public final class ClientProxy extends CommonProxy {
   @Override
@@ -18,6 +20,7 @@ public final class ClientProxy extends CommonProxy {
     RenderingRegistry.registerEntityRenderingHandler(Sovereign.class, new SovereignRenderer());
     RenderingRegistry.registerEntityRenderingHandler(Warden.class, new WardenRenderer());
     RenderingRegistry.registerEntityRenderingHandler(Cinder.class, new CinderRenderer());
+    MinecraftForge.EVENT_BUS.register(new PostureBar());
   }
 
   private static final class TargetRenderer extends RenderLiving {
