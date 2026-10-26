@@ -33,7 +33,7 @@ PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 VK_MENU = 0x12
 KEYEVENTF_KEYUP = 0x2
 # Scenarios that change player state or progress run on a snapshot restored afterwards.
-RESTORED_SCENARIOS = ('sovereign', 'warden', 'practice')
+RESTORED_SCENARIOS = ('sovereign', 'warden', 'practice', 'gallery')
 PROCESS_CHECK = """
 $ErrorActionPreference = 'Stop'
 try {
@@ -452,7 +452,7 @@ def restore_smoke_world(snapshot, world, run):
         raise
 
 
-def smoke(scenario='target'):
+def smoke(scenario='target', phases=('create', 'reload')):
     apply()
     gradle('harnessArtifactManifest')
     harness = artifact_from_manifest('harness')
@@ -470,8 +470,8 @@ def smoke(scenario='target'):
     succeeded = False
     focus = FocusGuard()
     try:
-        # Two real game launches exercise the world persistence boundary.
-        for phase in ('create', 'reload'):
+        # Two real game launches exercise the world persistence boundary; the gallery needs one.
+        for phase in phases:
             ensure_stopped()
             request = TARGET / 'minecraft/bosslab-smoke.properties'
             request.write_text('phase=' + phase + '\nworld=' + WORLD + '\nrun=' + run.name + '\nscenario=' + scenario + '\n', encoding='ascii')
@@ -562,7 +562,7 @@ def operation_lock():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['setup', 'check', 'build', 'apply', 'play', 'smoke', 'smoke-boss', 'smoke-warden', 'smoke-practice', 'reset-world', 'rollback'])
+    parser.add_argument('command', choices=['setup', 'check', 'build', 'apply', 'play', 'smoke', 'smoke-boss', 'smoke-warden', 'smoke-practice', 'gallery', 'reset-world', 'rollback'])
     command = parser.parse_args().command
     with operation_lock():
         if command == 'setup':
@@ -584,6 +584,8 @@ def main():
             smoke('warden')
         elif command == 'smoke-practice':
             smoke('practice')
+        elif command == 'gallery':
+            smoke('gallery', ('create',))
         elif command == 'reset-world':
             reset_world()
         elif command == 'rollback':

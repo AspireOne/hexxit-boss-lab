@@ -63,6 +63,7 @@ public final class SmokeHarness {
   private File gameDirectory;
   private SovereignScenario sovereign;
   private WardenScenario warden;
+  private GalleryScenario gallery;
   private PracticeScenario practice;
   private volatile boolean playerReady;
   private boolean savedDead;
@@ -104,6 +105,8 @@ public final class SmokeHarness {
       warden =
           new WardenScenario(
               request.getProperty("run"), request.getProperty("phase"), gameDirectory);
+    } else if ("gallery".equals(scenario)) {
+      gallery = new GalleryScenario(request.getProperty("run"), gameDirectory);
     } else if ("practice".equals(scenario)) {
       practice = new PracticeScenario(request.getProperty("phase"));
     } else if (!"target".equals(scenario)) {
@@ -161,6 +164,12 @@ public final class SmokeHarness {
     }
     if (warden != null) {
       if (warden.tick(server, player)) {
+        complete(server);
+      }
+      return;
+    }
+    if (gallery != null) {
+      if (gallery.tick(server, player)) {
         complete(server);
       }
       return;
@@ -291,6 +300,10 @@ public final class SmokeHarness {
             warden.render(minecraft);
             return;
           }
+          if (gallery != null) {
+            gallery.render(minecraft);
+            return;
+          }
           if (step == 2 && observedHealth == 33 && !imageSaved && minecraft.theWorld != null) {
             Entity entity = minecraft.theWorld.getEntityByID(targetId);
             if (entity != null && minecraft.thePlayer != null) {
@@ -352,6 +365,9 @@ public final class SmokeHarness {
         }
         if (warden != null) {
           warden.observe(minecraft);
+        }
+        if (gallery != null) {
+          gallery.clientTick(minecraft);
         }
         if (practice != null) {
           practice.observe(minecraft);
