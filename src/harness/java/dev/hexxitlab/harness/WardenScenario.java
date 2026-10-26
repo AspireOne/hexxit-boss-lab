@@ -58,6 +58,8 @@ public final class WardenScenario {
   private static final double SYNC_DISTANCE = 4.5;
   private static final int SETTLE_TICKS = 10;
   private static final double SYNC_TOLERANCE = 1.0 / 16;
+  // Vanilla's stride amount: 0 standing, 1 at a quarter block per tick.
+  private static final float WALKING_STRIDE = 0.5F;
   // A player's walking speed in blocks per tick.
   private static final double WALK = 0.216;
   private static final String[] PICTURES = {
@@ -329,9 +331,13 @@ public final class WardenScenario {
   private volatile double clientX = Double.NaN;
   private volatile double clientY = Double.NaN;
   private volatile double clientZ = Double.NaN;
+  private volatile float clientStride;
   private double lastX;
   private double lastY;
   private double lastZ;
+  private double lastClientX;
+  private double lastClientY;
+  private double lastClientZ;
   private int stillTicks;
   private int hitTick;
 
@@ -459,14 +465,33 @@ public final class WardenScenario {
    * where the server has it, at spawn and after a hit through the real client attack path.
    */
   private void tickSync() {
-    boolean still = boss.posX == lastX && boss.posY == lastY && boss.posZ == lastZ;
+    // A lagging client is still gliding toward the last position; a desynchronized one has
+    // stopped at the wrong place. Compare only once both copies have settled.
+    double x = clientX;
+    double y = clientY;
+    double z = clientZ;
+    boolean still =
+        boss.posX == lastX
+            && boss.posY == lastY
+            && boss.posZ == lastZ
+            && x == lastClientX
+            && y == lastClientY
+            && z == lastClientZ;
     stillTicks = still ? stillTicks + 1 : 0;
     lastX = boss.posX;
     lastY = boss.posY;
     lastZ = boss.posZ;
+    lastClientX = x;
+    lastClientY = y;
+    lastClientZ = z;
     if (stillTicks >= SETTLE_TICKS) {
       if (!clientHitRequested) {
         requireSynced("at spawn");
+        // Clients skip vanilla travel, which also drives the walk cycle; without it, it slides.
+        require(
+            clientStride > WALKING_STRIDE,
+            "Clients must swing the Warden's legs as it walks: stride " + clientStride);
+        BossLab.LOGGER.info("Warden combat PASS: walk-cycle");
         clientHitRequested = true;
       } else if (clientHitDone && hitTick == 0) {
         hitTick = ticks;
@@ -491,7 +516,18 @@ public final class WardenScenario {
             + when
             + ": off by "
             + error
-            + " blocks");
+            + " blocks; client "
+            + clientX
+            + ","
+            + clientY
+            + ","
+            + clientZ
+            + ", server "
+            + boss.posX
+            + ","
+            + boss.posY
+            + ","
+            + boss.posZ);
   }
 
   /** Guard maths with deterministic sources, then the same rule through the real weapon. */
@@ -1025,6 +1061,7 @@ public final class WardenScenario {
       clientX = visible.posX;
       clientY = visible.posY;
       clientZ = visible.posZ;
+      clientStride = Math.max(clientStride, visible.limbYaw);
       if (clientHitRequested && !clientHitDone && minecraft.thePlayer != null) {
         // The real input path: the client swings, then the server judges the packet.
         minecraft.thePlayer.swingItem();

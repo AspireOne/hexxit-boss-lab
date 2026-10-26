@@ -495,9 +495,27 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     // Clients follow server positions; leaps are scripted flight through terrain. On its first
     // tick the tracker's spawn packet already carries the new position and would also send the
     // step as a relative move, leaving clients offset by it until the next forced resync.
-    if (!worldObj.isRemote && getAction() != Action.AIRBORNE && ticksExisted > 1) {
+    if (worldObj.isRemote) {
+      swingLimbs();
+    } else if (getAction() != Action.AIRBORNE && ticksExisted > 1) {
       super.moveEntityWithHeading(strafe, forward);
     }
+  }
+
+  /**
+   * Vanilla's walk cycle, which ends the travel clients skip: the stride follows ground speed. A
+   * Leap's flight is not a stride.
+   */
+  private void swingLimbs() {
+    prevLimbYaw = limbYaw;
+    double dx = posX - prevPosX;
+    double dz = posZ - prevPosZ;
+    float speed =
+        getAction() == Action.AIRBORNE
+            ? 0
+            : Math.min(1, MathHelper.sqrt_double(dx * dx + dz * dz) * 4);
+    limbYaw += (speed - limbYaw) * 0.4F;
+    limbSwing += limbYaw;
   }
 
   @Override
