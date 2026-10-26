@@ -8,11 +8,15 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.particle.EffectRenderer;
+import net.minecraft.client.particle.EntityFX;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLiving;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.server.MinecraftServer;
@@ -31,9 +35,19 @@ final class GalleryScenario {
   private static final int AIR_ABOVE = 14;
   private static final int DAY = 6000;
   private static final int NIGHT = 18000;
-  // Client ticks after the server applies a shot before it may be captured, then frames held.
+  // Client ticks after the server applies a shot before its transition or effect plays; the
+  // camera must also hold still for some frames. Afterglows are brief, so they start only once
+  // the picture is framed, and it is taken a fixed number of ticks later.
   private static final int SETTLE_TICKS = 12;
   private static final int FRAMING_FRAMES = 6;
+  private static final int EFFECT_LEAD = 2;
+  // Normal field of view, so pictures compare between machines; the player's setting returns.
+  private static final float NORMAL_FOV = 0;
+  // Camera drift tolerated before the camera player is put back, and before a picture is refused.
+  private static final double CAMERA_SLACK = 0.3;
+  // Other mods' particles this close to the camera fill the picture; ours never come this near.
+  private static final double CAMERA_CLEARANCE = 4;
+  private static final double MODEL_DISTANCE = 4.5;
   private static final int PUPPET_ID = -4200;
   private static final int CINDER_ID = -4210;
   private static final double ORBIT_RADIUS = 4.5;
@@ -45,6 +59,7 @@ final class GalleryScenario {
   private static final byte IMPACT_EFFECT = 20;
   private static final byte NOVA_EFFECT = 21;
   private static final byte GUARD_EFFECT = 22;
+  private static final String OWN_PACKAGE = "dev.hexxitlab.";
   private static final int STONE = Block.stone.blockID;
   private static final int GRASS = Block.grass.blockID;
   private static final int SNOW = Block.blockSnow.blockID;
@@ -137,9 +152,12 @@ final class GalleryScenario {
   private int clientTicks;
   private int framedFrames;
   private int shownShot = -1;
+  // The server moves on to the next shot a tick later; until then, do not take this one again.
+  private int capturedShot = -1;
   private Warden puppet;
   private final List<Cinder> swarm = new ArrayList<Cinder>();
   private boolean originalHideGui;
+  private float originalFov;
   private boolean clientPrepared;
 
   GalleryScenario(String run, File directory) {
@@ -151,16 +169,16 @@ final class GalleryScenario {
   private void build() {
     Warden.Action hunt = Warden.Action.HUNT;
     // The model from every side, and its phases.
-    shots.add(new Shot("p1-front", hunt, 0).camera(0, 7, 2.2));
-    shots.add(new Shot("p1-three-quarter", hunt, 0).camera(35, 7, 2.6));
-    shots.add(new Shot("p1-side", hunt, 0).camera(90, 7, 2.2));
-    shots.add(new Shot("p1-back", hunt, 0).camera(180, 7, 2.6));
-    Shot walk = new Shot("p1-walk", hunt, 0).camera(60, 7, 2.2);
+    shots.add(new Shot("p1-front", hunt, 0).camera(0, MODEL_DISTANCE, 2.2));
+    shots.add(new Shot("p1-three-quarter", hunt, 0).camera(35, MODEL_DISTANCE, 2.6));
+    shots.add(new Shot("p1-side", hunt, 0).camera(90, MODEL_DISTANCE, 2.2));
+    shots.add(new Shot("p1-back", hunt, 0).camera(180, MODEL_DISTANCE, 2.6));
+    Shot walk = new Shot("p1-walk", hunt, 0).camera(60, MODEL_DISTANCE, 2.2);
     walk.walking = true;
     shots.add(walk);
-    shots.add(new Shot("p2-front", hunt, 0).phase(2).camera(20, 7, 2.2));
-    shots.add(new Shot("p3-front", hunt, 0).phase(3).camera(20, 7, 2.2));
-    shots.add(new Shot("p3-three-quarter", hunt, 0).phase(3).camera(45, 7, 2.8));
+    shots.add(new Shot("p2-front", hunt, 0).phase(2).camera(20, MODEL_DISTANCE, 2.2));
+    shots.add(new Shot("p3-front", hunt, 0).phase(3).camera(20, MODEL_DISTANCE, 2.2));
+    shots.add(new Shot("p3-three-quarter", hunt, 0).phase(3).camera(45, MODEL_DISTANCE, 2.8));
     shots.add(new Shot("p3-night", hunt, 0).phase(3).camera(20, 8, 2.2).night());
     shots.add(new Shot("p1-night", hunt, 0).camera(20, 8, 2.2).night());
     // Strikes: tracking against locked, the swing, and the landing.
@@ -235,27 +253,27 @@ final class GalleryScenario {
     shots.add(
         new Shot("exposed", Warden.Action.RECOVER, 20)
             .from(Warden.Action.HOOK, 6)
-            .camera(25, 7, 2.5));
-    Shot posture = new Shot("posture-partial", hunt, 0).camera(15, 7, 2.4).hud();
+            .camera(25, MODEL_DISTANCE, 2.5));
+    Shot posture = new Shot("posture-partial", hunt, 0).camera(15, MODEL_DISTANCE, 2.4).hud();
     posture.posture = Warden.POSTURE_LIMIT * 3 / 5;
     shots.add(posture);
     shots.add(
         new Shot("stagger", Warden.Action.STAGGER, 50)
             .from(Warden.Action.RECOVER, 30)
-            .camera(25, 7, 2.4)
+            .camera(25, MODEL_DISTANCE, 2.4)
             .hud());
     shots.add(
         new Shot("stagger-side", Warden.Action.STAGGER, 50)
             .from(Warden.Action.RECOVER, 30)
-            .camera(90, 7, 2.4));
-    Shot guard = new Shot("guard-flash", hunt, 0).camera(15, 6, 2.4);
+            .camera(90, MODEL_DISTANCE, 2.4));
+    Shot guard = new Shot("guard-flash", hunt, 0).camera(15, MODEL_DISTANCE, 2.4);
     guard.effect = GUARD_EFFECT;
     shots.add(guard);
     // Harrowings: warded and channelling, then the nova.
     shots.add(
         new Shot("kindle", Warden.Action.KINDLE, 20)
             .from(Warden.Action.HUNT, 20)
-            .camera(25, 8, 2.6));
+            .camera(25, MODEL_DISTANCE, 2.6));
     Shot reclaim =
         new Shot("reclaim", Warden.Action.RECLAIM, 60)
             .from(Warden.Action.HUNT, 30)
@@ -340,23 +358,41 @@ final class GalleryScenario {
       return true;
     }
     int index = shot;
+    Shot s = shots.get(index);
     if (index != appliedShot) {
-      Shot s = shots.get(index);
       world.setWorldTime(s.night ? NIGHT : DAY);
       if (s.ground != groundShown) {
         platform(world, s.ground, false);
         groundShown = s.ground;
       }
-      double angle = Math.toRadians(s.azimuth);
-      // The puppet faces +X; the camera orbits it from its front.
-      double x = cx + Math.cos(angle) * s.distance;
-      double z = cz + Math.sin(angle) * s.distance;
-      player.motionX = player.motionY = player.motionZ = 0;
-      player.setPositionAndUpdate(x, PLATFORM_Y + s.height - player.getEyeHeight(), z);
       appliedShot = index;
+    }
+    // Held every tick: a camera beyond the platform would otherwise fall.
+    if (!framed(player, s)) {
+      player.motionX = player.motionY = player.motionZ = 0;
+      player.setPositionAndUpdate(cameraX(s), cameraY(player, s), cameraZ(s));
     }
     player.fallDistance = 0;
     return false;
+  }
+
+  // The puppet faces +X; the camera orbits it from its front.
+  private double cameraX(Shot s) {
+    return cx + Math.cos(Math.toRadians(s.azimuth)) * s.distance;
+  }
+
+  private double cameraZ(Shot s) {
+    return cz + Math.sin(Math.toRadians(s.azimuth)) * s.distance;
+  }
+
+  private static double cameraY(EntityPlayer viewer, Shot s) {
+    return PLATFORM_Y + s.height - viewer.getEyeHeight();
+  }
+
+  private boolean framed(EntityPlayer viewer, Shot s) {
+    return Math.abs(viewer.posX - cameraX(s)) < CAMERA_SLACK
+        && Math.abs(viewer.posY - cameraY(viewer, s)) < CAMERA_SLACK
+        && Math.abs(viewer.posZ - cameraZ(s)) < CAMERA_SLACK;
   }
 
   private void platform(World world, int block, boolean probe) {
@@ -384,6 +420,7 @@ final class GalleryScenario {
     }
     if (!clientPrepared) {
       originalHideGui = minecraft.gameSettings.hideGUI;
+      originalFov = minecraft.gameSettings.fovSetting;
       clientPrepared = true;
     }
     int index = appliedShot;
@@ -393,9 +430,15 @@ final class GalleryScenario {
       clientTicks = 0;
       framedFrames = 0;
       minecraft.effectRenderer.clearEffects(minecraft.theWorld);
-      minecraft.gameSettings.hideGUI = !s.hud;
       respawn(minecraft, s);
     }
+    // The server sends the time only once a second, and some overlays toggle the GUI back.
+    minecraft.theWorld.setWorldTime(s.night ? NIGHT : DAY);
+    minecraft.gameSettings.hideGUI = !s.hud;
+    minecraft.gameSettings.fovSetting = NORMAL_FOV;
+    minecraft.thePlayer.capabilities.isFlying = true;
+    minecraft.thePlayer.motionX = minecraft.thePlayer.motionY = minecraft.thePlayer.motionZ = 0;
+    clearAround(minecraft);
     clientTicks++;
     drive(s);
   }
@@ -421,10 +464,9 @@ final class GalleryScenario {
     BossCombat.writeFloat(puppet.getDataWatcher(), field("NOVA_RADIUS"), s.nova);
     aim(s);
     if (s.transition) {
-      // The puppet's own client tick notices the change and plays its transition.
+      // Starts in the previous action; drive switches it so the picture lands at the shot's age.
       watch(puppet, "ACTION", s.previous.ordinal());
       set(puppet, "shownAction", s.previous);
-      watch(puppet, "ACTION", s.action.ordinal());
     } else {
       watch(puppet, "ACTION", s.action.ordinal());
       set(puppet, "shownAction", s.action);
@@ -457,6 +499,10 @@ final class GalleryScenario {
     }
     double y = PLATFORM_Y + (s.action == Warden.Action.AIRBORNE ? AIRBORNE_HEIGHT : 0);
     place(puppet, cx, y, cz, -90);
+    if (s.transition && clientTicks == SETTLE_TICKS) {
+      // The puppet's own client tick notices the change and plays its transition.
+      watch(puppet, "ACTION", s.action.ordinal());
+    }
     if (!s.transition || shownAction() == s.action && actionAge() >= s.age) {
       // Hold the pose still: freeze its age and timer.
       watch(puppet, "TIMER", s.timer);
@@ -468,7 +514,7 @@ final class GalleryScenario {
       puppet.limbYaw = puppet.prevLimbYaw = 1;
       puppet.limbSwing += 0.6F;
     }
-    if (s.effect != 0 && clientTicks == SETTLE_TICKS - 2) {
+    if (s.effect != 0 && clientTicks == SETTLE_TICKS) {
       puppet.handleHealthUpdate(s.effect);
     }
     for (int i = 0; i < swarm.size(); i++) {
@@ -484,7 +530,8 @@ final class GalleryScenario {
           0);
       cinderWatch(cinder, "STATE", (marked ? Cinder.State.MARK : Cinder.State.ORBIT).ordinal());
       if (marked) {
-        double a = Math.toRadians(s.azimuth);
+        // Off to the side, so the dive corridor crosses the picture rather than facing it.
+        double a = Math.toRadians(s.azimuth - 90);
         BossCombat.writeFloat(
             cinder.getDataWatcher(), cinderField("TARGET_X"), cx + Math.cos(a) * 4);
         BossCombat.writeFloat(cinder.getDataWatcher(), cinderField("TARGET_Y"), PLATFORM_Y + 0.9);
@@ -503,23 +550,29 @@ final class GalleryScenario {
   }
 
   void render(Minecraft minecraft) throws IOException {
-    if (finished || minecraft.thePlayer == null || shownShot < 0 || shownShot != appliedShot) {
+    if (finished
+        || minecraft.thePlayer == null
+        || shownShot < 0
+        || shownShot != appliedShot
+        || shownShot == capturedShot) {
       return;
     }
     Shot s = shots.get(shownShot);
-    double a = Math.toRadians(s.azimuth);
     // Looks at the body, or at a ground warning ahead of it (negative is behind it).
     double tx = cx + s.lookAhead;
     double ty = PLATFORM_Y + s.look + (s.action == Warden.Action.AIRBORNE ? AIRBORNE_HEIGHT : 0);
     face(minecraft.thePlayer, tx, ty, cz);
-    if (Math.abs(minecraft.thePlayer.posX - (cx + Math.cos(a) * s.distance)) > 0.5
-        || clientTicks < SETTLE_TICKS) {
+    if (!framed(minecraft.thePlayer, s)) {
+      framedFrames = 0;
+      return;
+    }
+    framedFrames++;
+    int ready =
+        SETTLE_TICKS + Math.max(s.transition ? s.age + 1 : 0, s.effect != 0 ? EFFECT_LEAD : 0);
+    if (framedFrames < FRAMING_FRAMES || clientTicks < ready) {
       return;
     }
     if (s.transition && (shownAction() != s.action || actionAge() < s.age)) {
-      return;
-    }
-    if (++framedFrames < FRAMING_FRAMES) {
       return;
     }
     File evidence = new File(directory, "bosslab-evidence");
@@ -527,11 +580,19 @@ final class GalleryScenario {
       throw new IOException("Cannot create screenshot directory");
     }
     BossLab.LOGGER.info(
+        "Gallery "
+            + s.name
+            + ": "
+            + (clientTicks - SETTLE_TICKS)
+            + " ticks after its cue; "
+            + minecraft.debug);
+    BossLab.LOGGER.info(
         ScreenShotHelper.func_74292_a(
             evidence,
             run + "-GALLERY-" + (shownShot < 10 ? "0" : "") + shownShot + "-" + s.name + ".png",
             minecraft.displayWidth,
             minecraft.displayHeight));
+    capturedShot = shownShot;
     if (shownShot + 1 < shots.size()) {
       shot = shownShot + 1;
     } else {
@@ -540,8 +601,33 @@ final class GalleryScenario {
         minecraft.theWorld.removeEntityFromWorld(CINDER_ID - i);
       }
       minecraft.gameSettings.hideGUI = originalHideGui;
+      minecraft.gameSettings.fovSetting = originalFov;
       finished = true;
     }
+  }
+
+  /** Removes other mods' particles crowding the camera, such as trails from worn equipment. */
+  private static void clearAround(Minecraft minecraft) {
+    for (List<?> layer : particleLayers(minecraft.effectRenderer)) {
+      for (Iterator<?> i = layer.iterator(); i.hasNext(); ) {
+        EntityFX fx = (EntityFX) i.next();
+        if (!fx.getClass().getName().startsWith(OWN_PACKAGE)
+            && fx.getDistanceToEntity(minecraft.thePlayer) < CAMERA_CLEARANCE) {
+          i.remove();
+        }
+      }
+    }
+  }
+
+  /** The renderer's particle lists, found by type because field names are obfuscated at runtime. */
+  private static List<?>[] particleLayers(EffectRenderer renderer) {
+    for (Field f : EffectRenderer.class.getDeclaredFields()) {
+      if (f.getType() == List[].class) {
+        f.setAccessible(true);
+        return (List<?>[]) read(f, renderer);
+      }
+    }
+    throw new IllegalStateException("No particle layers in the effect renderer");
   }
 
   private static void place(EntityLiving entity, double x, double y, double z, float yaw) {
