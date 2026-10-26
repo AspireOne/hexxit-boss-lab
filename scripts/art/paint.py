@@ -8,18 +8,17 @@ Needs Pillow. The fixed random seed makes the output reproducible.
 """
 import math
 import random
-import re
 import sys
 from pathlib import Path
 
 from PIL import Image
 
+from uvboxes import faces, read_boxes
+
 ROOT = Path(__file__).resolve().parents[2]
 MODEL = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / 'src/main/java/dev/hexxitlab/warden/WardenModel.java'
 OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / 'src/main/resources/mods/hexxitbosslab/textures/entity'
 SIZE = 128
-
-BOX = re.compile(r'box\((\w+),\s*(\d+),\s*(\d+),[^;]*?,\s*(\d+),\s*(\d+),\s*(\d+)\);')
 
 # Materials by owning part and box size, so repacking offsets never changes the art.
 MATERIAL = {
@@ -76,18 +75,6 @@ def jitter(color, amount):
 
 def mix(a, b, t):
     return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
-
-
-def faces(u, v, w, h, d):
-    """Face rectangles (x, y, width, height) in the standard box unwrap."""
-    return {
-        'top': (u + d, v, w, d),
-        'bottom': (u + d + w, v, w, d),
-        'right': (u, v + d, d, h),       # model -X: the entity's right
-        'front': (u + d, v + d, w, h),   # model -Z
-        'left': (u + d + w, v + d, d, h),
-        'back': (u + d + w + d, v + d, w, h),
-    }
 
 
 def fill(img, rect, fn):
@@ -210,12 +197,7 @@ def shield_face(x, y, fw, fh):
     return c
 
 
-boxes = []
-for match in BOX.finditer(MODEL.read_text()):
-    part, u, v, w, h, d = match.group(1), *map(int, match.groups()[1:])
-    if (part, w, h, d) not in MATERIAL:
-        raise SystemExit('No material for %s %dx%dx%d' % (part, w, h, d))
-    boxes.append((part, u, v, w, h, d))
+boxes = read_boxes(MODEL.read_text(), MATERIAL)
 
 seen = set()
 for part, u, v, w, h, d in boxes:
