@@ -10,6 +10,10 @@ Every attack is warned, every warning matches the blow exactly, and no simple pa
 
 ![The Ashen Warden guarding, enraged in phase three, and staggered](docs/images/warden.png)
 
+V1 demo:
+
+https://github.com/user-attachments/assets/72006dfb-1505-492c-85c1-4799b76caa23
+
 An armoured duelist with a shield that turns your blows aside until it commits to a strike. Bait an attack, dodge it, and punish the opening.
 
 - **Tracking warnings.** Each strike follows you faintly, aimed at where you are heading, then flares and locks. Keep moving the same way and you walk into it; change direction and you escape.
@@ -24,6 +28,10 @@ An armoured duelist with a shield that turns your blows aside until it commits t
 ### The Hexbound Sovereign
 
 ![The Hexbound Sovereign hovering, charging, and broken open in phase three](docs/images/sovereign.png)
+
+V1 demo:
+
+https://github.com/user-attachments/assets/d0b609b7-789f-44a4-ae15-35822c3a74b0
 
 A hooded, faceless king held together by hex magic. Its crown, halo, gauntlets, sceptre, and crystal shards float free of its body, and where they drift tells you what it is about to do. It fights from the air.
 
