@@ -26,6 +26,8 @@ public final class Telegraphs {
   private static final int TUBE_SIDES = 12;
   private static final int DOME_LATITUDES = 18;
   private static final int DOME_LONGITUDES = 36;
+  private static final float DOME_OUTSIDE = 0.03F;
+  private static final float DOME_INSIDE = 0.12F;
   private static final float FULL_BRIGHT = 240;
   private static final float[] SHADOW = {0.1F, 0.02F, 0};
   private static final float[] HOT = {1, 0.92F, 0.65F};
@@ -392,14 +394,17 @@ public final class Telegraphs {
 
   private static void shell(
       double radius, float[] rgb, float strength, Warning w, float[] eye, float weight) {
+    // Seen from inside, every wall faces the camera and the rim glow vanishes, so tint it instead.
+    double centre = Math.sqrt(eye[12] * eye[12] + eye[13] * eye[13] + eye[14] * eye[14]);
+    float base = centre < radius ? DOME_INSIDE : DOME_OUTSIDE;
     for (int lat = 0; lat < DOME_LATITUDES; lat++) {
       double a0 = Math.PI * lat / DOME_LATITUDES;
       double a1 = Math.PI * (lat + 1) / DOME_LATITUDES;
       GL11.glBegin(GL11.GL_QUAD_STRIP);
       for (int lon = 0; lon <= DOME_LONGITUDES; lon++) {
         double b = Math.PI * 2 * lon / DOME_LONGITUDES;
-        domeVertex(a0, b, radius, rgb, strength, w, eye, weight);
-        domeVertex(a1, b, radius, rgb, strength, w, eye, weight);
+        domeVertex(a0, b, radius, rgb, strength * weight, base, w, eye);
+        domeVertex(a1, b, radius, rgb, strength * weight, base, w, eye);
       }
       GL11.glEnd();
     }
@@ -411,16 +416,16 @@ public final class Telegraphs {
       double radius,
       float[] rgb,
       float strength,
+      float base,
       Warning w,
-      float[] eye,
-      float weight) {
+      float[] eye) {
     double nx = Math.sin(latitude) * Math.cos(longitude);
     double ny = Math.cos(latitude);
     double nz = Math.sin(latitude) * Math.sin(longitude);
     float rim = rim(eye, nx * radius, ny * radius, nz * radius, nx, ny, nz);
     // Heat bands rise over the surface.
     float shimmer = 0.8F + 0.2F * (float) Math.sin(latitude * 9 + w.time * 0.25);
-    float alpha = (0.03F + 0.5F * rim * rim * rim) * shimmer * strength * weight;
+    float alpha = (base + 0.5F * rim * rim * rim) * shimmer * strength;
     GL11.glColor4f(rgb[0], rgb[1], rgb[2], alpha);
     GL11.glVertex3d(nx * radius, ny * radius, nz * radius);
   }
