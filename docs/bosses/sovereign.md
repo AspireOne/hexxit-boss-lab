@@ -1,6 +1,8 @@
 # The Hexbound Sovereign
 
-An aerial boss for the local Hexxit lab. Kill it through ordinary combat. Its attacks lock before they execute, so changing direction after a warning matters. It remains vulnerable throughout the fight.
+A floating hex-king that fights from the air with a beam, a charge, and a crown-shaped blast. Its warnings lock as soon as they appear, so get out of the warned area before the attack fires. It has no guard: it can be hurt throughout the fight, and most of all while it is exposed after each attack.
+
+**Version:** v1 is sealed as the Git tag `sovereign-v1`. Everything after it is v2, still in development; this guide describes the current code. To play or compare v1, check out the tag.
 
 ## Play
 
@@ -53,7 +55,7 @@ Its warnings share the Warden's [locked style](warden.md#reading-its-state): the
 
 ## Implementation
 
-Production behaviour and rendering live in the `sovereign` feature package. Combat is server-owned; health, action, timer, and locked geometry synchronize through the legacy DataWatcher. Combat constants are the tuning surface; there is no separate encounter framework or configuration UI. It is an early prototype that predates the [encounter design rules](../encounter-design.md): its warnings lock from the start rather than tracking.
+Production behaviour and rendering live in the `sovereign` feature package. Combat is server-owned; health, action, timer, and locked geometry synchronize through the legacy DataWatcher. Combat constants are the tuning surface; there is no separate encounter framework or configuration UI. Its combat predates the [encounter design rules](../encounter-design.md): its warnings lock from the start rather than tracking, which makes it the main candidate for v2 work.
 
 ## Rendering
 

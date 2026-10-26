@@ -21,7 +21,7 @@ Run commands from the repository root in PowerShell:
 
 Close Minecraft before setup, deployment, rollback, or reset. Process checks refuse these operations when Minecraft is running, inspection fails, or a Java process's command line cannot be read. Gradle's Java process is allowed. Commands serialize local operations through `.lab/operation.lock`.
 
-The PowerShell entry point delegates filesystem and process orchestration to Python's standard library. Gradle owns compilation and build checks. The lab workflow has no Python package dependencies; only the [texture painter](bosses/warden.md#rendering) needs Pillow.
+The PowerShell entry point delegates filesystem and process orchestration to Python's standard library. Gradle owns compilation and build checks. The lab workflow has no Python package dependencies; only the art scripts in `scripts/art/` need Pillow: the [texture painters](bosses/warden.md#rendering), and `readme_strips.py`, which crops gallery shots into the README's boss strips.
 
 How the smoke runs and other scenarios work, and how to write new ones, is in [Testing](testing.md).
 

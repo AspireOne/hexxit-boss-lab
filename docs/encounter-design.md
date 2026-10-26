@@ -47,4 +47,4 @@ Check every new boss against these patterns, and add a combat-scenario regressio
 - **Height camping:** standing just below or above a grounded boss's vertical reach, for example under its ledge, close enough that it neither walks nor leaps, and hitting it while every blow misses.
 - **Teleporting into its blind spot:** for example, teleporting to where a leaping boss took off while it is still in the air, then shooting it during the recovery. Any move that ends with the boss committed and the player safe needs a follow-up threat.
 
-The [Sovereign](bosses/sovereign.md) is an earlier prototype that predates these rules. The [Warden](bosses/warden.md) applies them.
+The [Warden](bosses/warden.md) applies these rules. The [Sovereign](bosses/sovereign.md)'s combat predates them; its warnings lock from the start rather than tracking.
