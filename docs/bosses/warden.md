@@ -2,6 +2,8 @@
 
 A grounded, armoured duelist that commands a swarm of Cinders. Where the [Sovereign](sovereign.md) tests dodging, the Warden tests positioning, target priority, and punishing commitment. Its front deflects your hits until it commits to a strike, so the fight is about baiting its attacks and getting around them. It follows the [encounter design rules](../encounter-design.md).
 
+**Version:** v1 is sealed as the Git tag `warden-v1`. Everything after it is v2, still in development; this guide describes the current code. To play or compare v1, check out the tag.
+
 ## Play
 
 Run `.\lab.ps1 play`, open **Kratom - Boss Lab**, and choose Easy, Normal, or Hard. Find a reasonably open area, then use `/bosslab warden`. It appears on the ground 12 blocks ahead, facing you, and engages after three seconds. `/bosslab status` and `/bosslab clear` work as for the Sovereign. Summoning saves a character checkpoint for [quick rematches](../practice.md); `/bosslab retry` summons a fresh Warden.
