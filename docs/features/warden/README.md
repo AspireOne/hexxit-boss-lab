@@ -90,7 +90,7 @@ Texture gotchas in 1.5.2:
 - Textures load by absolute class-path path through `RenderEngine.bindTexture`, here `/mods/hexxitbosslab/textures/entity/`. Texture packs fall back to the default pack, which searches the class path, so the mod JAR supplies them.
 - The red hurt and death flash redraws the model with texturing off and an equal depth test. The model detects this and skips its glow passes, which would otherwise flash white.
 - Glow layers (embers, phase-three rage, runes, cracks) are extra additive passes at full lightmap brightness, so they stay lit at night. The cracks' alpha channel stores the order in which each crack appears, and an alpha test reveals them as posture rises.
-- Box UVs are packed for a 128 × 128 sheet. Moving or resizing a box means repainting the sheet.
+- Box UVs are packed for a 128 × 128 sheet, and the textures are generated, not hand-drawn. After adding or resizing a box, run `python scripts/art/repack.py` to repack the offsets in `WardenModel`, then `python scripts/art/paint.py` to repaint every layer. The painter needs Pillow, unlike the lab workflow. It picks each part's material by its owning part and box size, so a new box also needs an entry in its `MATERIAL` table. Its fixed seed makes repainting an unchanged model reproduce the committed images exactly.
 
 `.\lab.ps1 gallery` photographs the posed Warden, its warnings, effects, and Cinders without combat. It covers every state and phase from several angles, on stone, grass, and snow, by day and night. Use it after visual changes; it snapshots and restores the lab save like the combat scenarios.
 
