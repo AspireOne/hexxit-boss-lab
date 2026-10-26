@@ -58,6 +58,8 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   public static final int NOVA_DAMAGE = 60;
   public static final double REEL_DISTANCE = 4;
   public static final int KINDLE_CINDERS = 3;
+  // Ticks a Cinder's ash keeps Regeneration from taking hold on the opponent it struck.
+  public static final int SMOTHER_TICKS = 100;
   private static final byte IMPACT_EFFECT = 20;
   private static final byte NOVA_EFFECT = 21;
   private static final byte GUARD_EFFECT = 22;
@@ -168,6 +170,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
   private int raiseTimer;
   private int diveTimer;
   private int ash;
+  private int smothered;
   private int postureIdle;
   private int guardedStreak;
   private int lastGuardedTick;
@@ -557,6 +560,13 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     if (++postureIdle > POSTURE_GRACE && getPosture() > 0) {
       dataWatcher.updateObject(POSTURE, Integer.valueOf(getPosture() - 1));
     }
+    if (smothered > 0) {
+      smothered--;
+      if (opponent.isPotionActive(Potion.regeneration)) {
+        opponent.removePotionEffect(Potion.regeneration.id);
+        worldObj.playSoundAtEntity(opponent, "random.fizz", 0.8F, 0.8F);
+      }
+    }
     if (!isWarded()) {
       // Phase changes interrupt anything, including a leap in flight.
       if (phase == 1 && getHealth() <= KINDLE_HEALTH) {
@@ -637,7 +647,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     boolean visible = canEntityBeSeen(opponent);
     if (rise > REACH_HIGH && getDistanceToEntity(opponent) <= HOOK_RANGE && visible) {
       lock(Action.HOOK);
-    } else if (horizontal <= OPEN_DISTANCE && rise <= REACH_HIGH) {
+    } else if (horizontal <= OPEN_DISTANCE && withinReach(rise)) {
       comboStep = 0;
       comboLength = COMBO_LENGTH[phase - 1];
       nextStep();
@@ -646,24 +656,33 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
         && horizontal <= LEAP_DISTANCE
         && visible) {
       lock(Action.HOOK);
-    } else if (horizontal > LEAP_DISTANCE || stuckTicks >= STUCK_TICKS) {
+    } else if (horizontal > LEAP_DISTANCE || stuckTicks >= STUCK_TICKS || !withinReach(rise)) {
+      // Standing close but out of its reach, such as below its ledge, is never a safe spot.
       lock(Action.LEAP);
     }
   }
 
   /** Chooses each combo step from the opponent's position at that moment. */
   private void nextStep() {
-    double horizontal = horizontalDistance(opponent);
-    if (++comboStep >= comboLength || horizontal > OPEN_DISTANCE) {
-      // Backing away from a combo earns a Leap after you, not a Slam that falls short.
-      Vec3 heading = ahead(feet(), commit(Action.SLAM, getPhase()));
-      lock(
-          horizontalDistance(heading.xCoord, heading.zCoord) <= SLAM_CHOICE
-              ? Action.SLAM
-              : Action.LEAP);
+    if (++comboStep >= comboLength
+        || horizontalDistance(opponent) > OPEN_DISTANCE
+        || !withinReach(opponent.posY - posY)) {
+      finish();
     } else {
       lock(Math.abs(angleTo(opponent)) > BEHIND_ANGLE ? Action.BACKHAND : Action.CLEAVE);
     }
+  }
+
+  /**
+   * Ends a combo or reel with a Slam where the opponent is heading, or a Leap after an opponent
+   * heading beyond the Slam or out of its height reach, so no finisher falls short.
+   */
+  private void finish() {
+    Vec3 heading = ahead(feet(), commit(Action.SLAM, getPhase()));
+    boolean slam =
+        withinReach(opponent.posY - posY)
+            && horizontalDistance(heading.xCoord, heading.zCoord) <= SLAM_CHOICE;
+    lock(slam ? Action.SLAM : Action.LEAP);
   }
 
   private void lock(Action action) {
@@ -878,7 +897,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     if (opponent.isEntityAlive() && reelDestination() != null) {
       changeAction(Action.REEL, REEL_TICKS);
     } else {
-      lock(Action.SLAM);
+      finish();
     }
   }
 
@@ -887,7 +906,7 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     Vec3 end = reelDestination();
     if (end == null) {
       forgetVelocity();
-      lock(Action.SLAM);
+      finish();
       return;
     }
     double t = 1 - --remaining / (double) REEL_TICKS;
@@ -1028,6 +1047,13 @@ public final class Warden extends EntityLiving implements IBossDisplayData, LabB
     ash++;
     BossCombat.writeFloat(dataWatcher, NOVA_RADIUS, NOVA_BASE_RADIUS + NOVA_GROWTH * ash);
     playSound("mob.ghast.fireball", 2, 0.6F);
+  }
+
+  /** Fire does nothing to a Fire Resistant opponent; ash denies the golden apple instead. */
+  void smother(EntityPlayer player) {
+    if (player == opponent) {
+      smothered = SMOTHER_TICKS;
+    }
   }
 
   private void pruneSwarm() {

@@ -261,6 +261,9 @@ public final class WardenScenario {
         Warden.HOOK_DAMAGE,
         Warden.SLAM_DAMAGE),
     new Combo("hook-dodge", 1, 5, 8, new Step[] {new Step(Warden.Action.HOOK, 5, 4, 8)}),
+    // Standing close below its reach, under its ledge, gets a Leap down instead of blows that miss.
+    new Combo(
+        "below-reach", 1, FRONT, -3, new Step[] {new Step(Warden.Action.LEAP)}, Warden.LEAP_DAMAGE),
     new Combo(
         "berserk-combo",
         3,
@@ -320,6 +323,7 @@ public final class WardenScenario {
   private int dives;
   private int swarmAtReclaim;
   private boolean cinderShot;
+  private int smotherCheck = -1;
   private volatile boolean clientHitRequested;
   private volatile boolean clientHitDone;
   private volatile double clientX = Double.NaN;
@@ -712,6 +716,12 @@ public final class WardenScenario {
 
   /** The first conducted dive is taken; the second is dodged sideways after its warning. */
   private void tickDives() {
+    if (ticks == smotherCheck) {
+      require(
+          !player.isPotionActive(Potion.regeneration),
+          "A Cinder's ash must keep Regeneration from taking hold");
+      BossLab.LOGGER.info("Warden combat PASS: cinder-smother");
+    }
     if (diver == null) {
       for (Object value : player.worldObj.loadedEntityList) {
         if (value instanceof Cinder && ((Cinder) value).getState() == Cinder.State.MARK) {
@@ -729,6 +739,11 @@ public final class WardenScenario {
               && (expected == 0 || cinderHits.get(0).intValue() == Cinder.DAMAGE),
           "Cinder dive " + dives + ": expected " + expected + " hit, saw " + cinderHits);
       BossLab.LOGGER.info("Warden combat PASS: cinder-dive-" + (dives == 0 ? "hit" : "dodge"));
+      if (dives == 0) {
+        // A golden apple eaten after the hit; the Warden strips it on its next tick.
+        player.addPotionEffect(new PotionEffect(Potion.regeneration.id, APPLE_TICKS, APPLE_LEVEL));
+        smotherCheck = ticks + 2;
+      }
       diver = null;
       if (++dives == 2) {
         swarmAtReclaim = count(player.worldObj, Cinder.class);

@@ -15,7 +15,6 @@ public final class Cinder extends EntityLiving {
   public static final int DAMAGE = 8;
   public static final int MARK_TICKS = 14;
   public static final double HIT_RADIUS = 0.6;
-  private static final int BURN_SECONDS = 3;
   private static final double ORBIT_RADIUS = 4.5;
   private static final double ORBIT_HEIGHT = 2.5;
   private static final double ORBIT_SPEED = 0.5;
@@ -242,7 +241,7 @@ public final class Cinder extends EntityLiving {
           && BossCombat.inCorridor(
               start, end, BossCombat.center(player), HIT_RADIUS + BossCombat.PLAYER_HIT_RADIUS)) {
         Warden.strike(player, this, DAMAGE, true);
-        player.setFire(BURN_SECONDS);
+        owner.smother(player);
         diveHit = true;
       }
     }

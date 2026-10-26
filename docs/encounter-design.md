@@ -44,6 +44,7 @@ Check every new boss against these patterns, and add a combat-scenario regressio
 - **Sniping:** shooting from beyond every attack's reach, on foot or in flight.
 - **Ranged attrition:** keeping distance and shooting whenever it is safe. Even when every attack can reach the player, a bow that deals steady damage from the front turns the fight into a slow, safe grind.
 - **Out-healing:** standing in front of the boss and attacking while Regeneration IV from an enchanted golden apple heals about 6.7 health per second. Against about 4 health per second of mitigated boss damage, that is endless. A boss must counter healing or exceed it in bursts.
+- **Height camping:** standing just below or above a grounded boss's vertical reach, for example under its ledge, close enough that it neither walks nor leaps, and hitting it while every blow misses.
 - **Teleporting into its blind spot:** for example, teleporting to where a leaping boss took off while it is still in the air, then shooting it during the recovery. Any move that ends with the boss committed and the player safe needs a follow-up threat.
 
 The [Sovereign](bosses/sovereign.md) is an earlier prototype that predates these rules. The [Warden](bosses/warden.md) applies them.
