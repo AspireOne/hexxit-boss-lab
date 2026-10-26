@@ -1,6 +1,6 @@
 # Hexxit Boss Lab
 
-Use `./lab.ps1` for the local workflow. Read `docs/features/development-foundation/README.md` before deploying or testing in Minecraft. Read `docs/encounter-design.md` before designing or tuning a boss: it records the player's equipment and the rules every fight must hold.
+Use `./lab.ps1` for the local workflow. Read `docs/development.md` before deploying, and `docs/testing.md` before testing in Minecraft. Read `docs/encounter-design.md` before designing or tuning a boss: it records the player's equipment and the rules every fight must hold. Each boss has its guide in `docs/bosses/`.
 
 - Target Minecraft 1.5.2 and Forge 7.8.1.737. Compile shipping code to Java 6 using JDK 11; run the actual pack with its existing Java 8 runtime.
 - Keep production code small and feature-oriented. Development automation belongs in the separate harness, never the shipped mod.

@@ -1,10 +1,10 @@
 # The Ashen Warden
 
-A grounded, armoured duelist that commands a swarm of Cinders. Where the [Sovereign](../sovereign/README.md) tests dodging, the Warden tests positioning, target priority, and punishing commitment. Its front deflects your hits until it commits to a strike, so the fight is about baiting its attacks and getting around them. It follows the [encounter design rules](../../encounter-design.md).
+A grounded, armoured duelist that commands a swarm of Cinders. Where the [Sovereign](sovereign.md) tests dodging, the Warden tests positioning, target priority, and punishing commitment. Its front deflects your hits until it commits to a strike, so the fight is about baiting its attacks and getting around them. It follows the [encounter design rules](../encounter-design.md).
 
 ## Play
 
-Run `.\lab.ps1 play`, open **Kratom - Boss Lab**, and choose Easy, Normal, or Hard. Find a reasonably open area, then use `/bosslab warden`. It appears on the ground 12 blocks ahead, facing you, and engages after three seconds. `/bosslab status` and `/bosslab clear` work as for the Sovereign. Summoning saves a character checkpoint for [quick rematches](../practice/README.md); `/bosslab retry` summons a fresh Warden.
+Run `.\lab.ps1 play`, open **Kratom - Boss Lab**, and choose Easy, Normal, or Hard. Find a reasonably open area, then use `/bosslab warden`. It appears on the ground 12 blocks ahead, facing you, and engages after three seconds. `/bosslab status` and `/bosslab clear` work as for the Sovereign. Summoning saves a character checkpoint for [quick rematches](../practice.md); `/bosslab retry` summons a fresh Warden.
 
 Only one lab boss can be loaded per dimension. The Warden does not spawn naturally.
 
@@ -75,13 +75,15 @@ Every Warden and Cinder hit removes Regeneration, so a golden apple heals only b
 
 It ignores creative and otherwise invulnerable players. Leaving its 128-block range for 15 seconds of loaded simulation restores its health and first phase, and dismisses its swarm. Peaceful removes it without rewards. A player kill awards one Nether Star and 200 experience through normal loot handling. Saving preserves its health and phase; reloading cancels an unfinished attack and gives a fresh 3-second delay. Cinders are never saved, so a reloaded phase-two Warden raises a new swarm.
 
-## Implementation and verification
+## Implementation
 
 Behaviour and rendering live in the `warden` feature package. Combat is server-owned. Health, action, timer, phase, locked strike point and yaw, and nova radius synchronize through the legacy DataWatcher. Strike geometry and telegraph drawing are shared with the Sovereign through `BossCombat` and `Telegraphs`. Combat constants at the top of `Warden` and `Cinder` are the tuning surface.
 
 Strikes lead with a smoothed estimate of the opponent's horizontal velocity, taken from server positions each tick. The lead is capped at 8 blocks. Jumps of more than 3 blocks in one tick, such as teleports and the Chain Hook's reel, reset the estimate instead of counting as movement. The Slam's ground point aims straight at the heading, while its body turns at the normal rate; a turn-limited Slam lagged behind circling players, so reversing walked back into it.
 
 The Warden walks with vanilla collision, step-up, and gravity: its AI runs in `updateEntityActionState`, which vanilla calls on the server just before travel. Leaps are scripted flights through terrain onto the first solid surface below the locked target. Bosses set `ignoreFrustumCheck`, because their warnings extend far beyond their bodies and would otherwise vanish when you look away from them.
+
+## Rendering
 
 Rendering is client-only and reads the synchronized state; it never feeds back into combat. `WardenModel` holds the rig and `WardenPoses` the pose for each action, blended over a few ticks and planted on the ground. A guarded hit sends entity status 22 so the client can flare the runes; it carries no gameplay. Effects are particles added straight to the effect renderer, because `World.spawnParticle` drops particles more than 16 blocks from the camera. Strike afterglows and scorches draw their own geometry in particle layer 3.
 
@@ -92,8 +94,10 @@ Texture gotchas in 1.5.2:
 - Glow layers (embers, phase-three rage, runes, cracks) are extra additive passes at full lightmap brightness, so they stay lit at night. The cracks' alpha channel stores the order in which each crack appears, and an alpha test reveals them as posture rises.
 - Box UVs are packed for a 128 × 128 sheet, and the textures are generated, not hand-drawn. After adding or resizing a box, run `python scripts/art/repack.py` to repack the offsets in `WardenModel`, then `python scripts/art/paint.py` to repaint every layer. The painter needs Pillow, unlike the lab workflow. It picks each part's material by its owning part and box size, so a new box also needs an entry in its `MATERIAL` table. Its fixed seed makes repainting an unchanged model reproduce the committed images exactly.
 
+## Verification
+
 `.\lab.ps1 gallery` photographs the posed Warden, its warnings, effects, and Cinders without combat. It covers every state and phase from several angles, on stone, grass, and snow, by day and night. Use it after visual changes; it snapshots and restores the lab save like the combat scenarios.
 
-`.\lab.ps1 smoke-warden` runs the combat scenario across two launches on a temporary stone platform in daylight. It snapshots the current lab save and restores it afterwards. It checks the guard against deterministic melee and arrow damage plus a real pack weapon, and shots from beyond the hook's reach. It covers each combo branch with hits and dodges taken when the warning locks, the hook reel into a Slam, and phase-three combos and warnings. The [known exploits](../../encounter-design.md#known-exploits) each have a regression: orbiting and backing away get hit, while reversing direction at the lock escapes; teleporting to the Leap's takeoff point is hooked and slammed. Posture builds from recovery hits, and a break staggers it, with heavier blows and no arrow shield. Hammering the shield provokes a Shield Bash, and a blow removes an enchanted golden apple's Regeneration. The swarm cases cover Kindle warding, Cinder dive hits and dodges, Reclaim with a Cinder shot down in flight, and nova radius, hit, and escape; the shattered guard; disengagement; persistence; loot; the one-boss rule; retry; clear; and Peaceful. Geometry probes cancel boss damage at the Forge boundary after recording it. Screenshots of each warning are saved in the run directory.
+`.\lab.ps1 smoke-warden` runs the combat scenario across two launches on a temporary stone platform in daylight. It snapshots the current lab save and restores it afterwards. It checks the guard against deterministic melee and arrow damage plus a real pack weapon, and shots from beyond the hook's reach. It covers each combo branch with hits and dodges taken when the warning locks, the hook reel into a Slam, and phase-three combos and warnings. The [known exploits](../encounter-design.md#known-exploits) each have a regression: orbiting and backing away get hit, while reversing direction at the lock escapes; teleporting to the Leap's takeoff point is hooked and slammed. Posture builds from recovery hits, and a break staggers it, with heavier blows and no arrow shield. Hammering the shield provokes a Shield Bash, and a blow removes an enchanted golden apple's Regeneration. The swarm cases cover Kindle warding, Cinder dive hits and dodges, Reclaim with a Cinder shot down in flight, and nova radius, hit, and escape; the shattered guard; disengagement; persistence; loot; the one-boss rule; retry; clear; and Peaceful. Geometry probes cancel boss damage at the Forge boundary after recording it. Screenshots of each warning are saved in the run directory.
 
-See the [verification record](verification.md) for accepted runs. Balance remains subject to human fights.
+Pack weapons vary per swing, so the guard's exact maths is proven with deterministic damage, and the real weapon only has to be clearly blunted from the front. Balance and feel remain subject to human fights; see the [limits of scenarios](../testing.md#writing-scenarios).

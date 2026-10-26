@@ -19,7 +19,9 @@ Bosses are built for one experienced player with an endgame Hexxit character. Th
 | Golden Feather | Absorbs fall damage, using durability | Falls and knock-ups do nothing. |
 | TNT and assorted potions | Situational | So far of little use against bosses. |
 
-The saved character also carries a Twilight Cloak from Xeno's Reliquary. The character changes between play sessions, so automated tests locate equipment by type; see the [development foundation](features/development-foundation/README.md).
+The saved character also carries a Twilight Cloak from Xeno's Reliquary. The character changes between play sessions, so automated tests locate equipment by type; see [Testing](testing.md#how-the-harness-works).
+
+Measured against unguarded bosses, the sword deals about 16 to 25 per hit and a fully drawn Crystal Bow shot about 24. One 48-damage magic blow removed 28 of the character's 40 health. These vary with critical hits, effects, and difficulty, so treat them as a scale, not exact values.
 
 ## Rules
 
@@ -44,4 +46,4 @@ Check every new boss against these patterns, and add a combat-scenario regressio
 - **Out-healing:** standing in front of the boss and attacking while Regeneration IV from an enchanted golden apple heals about 6.7 health per second. Against about 4 health per second of mitigated boss damage, that is endless. A boss must counter healing or exceed it in bursts.
 - **Teleporting into its blind spot:** for example, teleporting to where a leaping boss took off while it is still in the air, then shooting it during the recovery. Any move that ends with the boss committed and the player safe needs a follow-up threat.
 
-The [Sovereign](features/sovereign/README.md) is an earlier prototype that predates these rules. The [Warden](features/warden/README.md) applies them.
+The [Sovereign](bosses/sovereign.md) is an earlier prototype that predates these rules. The [Warden](bosses/warden.md) applies them.
