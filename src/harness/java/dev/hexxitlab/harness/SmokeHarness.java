@@ -143,7 +143,7 @@ public final class SmokeHarness {
     EntityPlayerMP player =
         (EntityPlayerMP) server.getConfigurationManager().playerEntityList.get(0);
     serverTicks++;
-    if (serverTicks > RUN_LIMIT_TICKS) {
+    if (serverTicks > (gallery != null ? gallery.tickLimit() : RUN_LIMIT_TICKS)) {
       throw new IllegalStateException(
           "Timed out waiting for client entity synchronization at step " + step);
     }

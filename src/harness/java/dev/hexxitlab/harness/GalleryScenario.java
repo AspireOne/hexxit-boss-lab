@@ -2,6 +2,7 @@ package dev.hexxitlab.harness;
 
 import dev.hexxitlab.BossCombat;
 import dev.hexxitlab.BossLab;
+import dev.hexxitlab.sovereign.Sovereign;
 import dev.hexxitlab.warden.Cinder;
 import dev.hexxitlab.warden.Warden;
 import java.io.File;
@@ -21,13 +22,14 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.ScreenShotHelper;
+import net.minecraft.util.Vec3;
 import net.minecraft.world.World;
 
 /**
- * Photographs the Warden in every state, phase and warning from several angles, by day and night
- * and on several grounds. The Warden and its Cinders are client-only puppets whose synchronized
- * state the gallery sets directly, so each picture is exact and repeatable; no combat runs. The
- * server builds a temporary platform, sets the time, and moves the camera player.
+ * Photographs the Warden and the Sovereign in every state, phase and warning from several angles,
+ * by day and night and on several grounds. The bosses and Cinders are client-only puppets whose
+ * synchronized state the gallery sets directly, so each picture is exact and repeatable; no combat
+ * runs. The server builds a temporary platform, sets the time, and moves the camera player.
  */
 final class GalleryScenario {
   private static final int PLATFORM_RADIUS = 14;
@@ -39,6 +41,9 @@ final class GalleryScenario {
   // camera must also hold still for some frames. Afterglows are brief, so they start only once
   // the picture is framed, and it is taken a fixed number of ticks later.
   private static final int SETTLE_TICKS = 12;
+  // The run's tick budget: time to start, and a generous allowance per picture.
+  private static final int START_TICKS = 600;
+  private static final int SHOT_TICKS = 40;
   private static final int FRAMING_FRAMES = 6;
   private static final int EFFECT_LEAD = 2;
   // Normal field of view, so pictures compare between machines; the player's setting returns.
@@ -59,16 +64,40 @@ final class GalleryScenario {
   private static final byte IMPACT_EFFECT = 20;
   private static final byte NOVA_EFFECT = 21;
   private static final byte GUARD_EFFECT = 22;
+  private static final int SOVEREIGN_ID = -4220;
+  // The Sovereign floats this far above the platform, as it hovers above a player's feet.
+  private static final double SOVEREIGN_HOVER = 0.5;
+  private static final double SOVEREIGN_LOOK = 2.4;
+  private static final double SOVEREIGN_REACH = 30;
+  private static final double SOVEREIGN_RUSH = 20;
+  // Health within each phase: phase two and three show their spreading fissures.
+  private static final int[] SOVEREIGN_HEALTH = {Sovereign.MAX_HEALTH, 2000, 900};
   private static final String OWN_PACKAGE = "dev.hexxitlab.";
   private static final int STONE = Block.stone.blockID;
   private static final int GRASS = Block.grass.blockID;
   private static final int SNOW = Block.blockSnow.blockID;
 
-  /** One picture: a puppet state and a camera. Angles are degrees from the Warden's front. */
+  /**
+   * One picture: a puppet state and a camera. Angles are degrees from the puppet's front. A shot
+   * poses either the Warden (action) or the Sovereign (sovereign); the other is null.
+   */
   private static final class Shot {
     final String name;
     final Warden.Action action;
+    final Sovereign.Action sovereign;
     Warden.Action previous = Warden.Action.HUNT;
+    Sovereign.Action sovereignPrevious = Sovereign.Action.HUNT;
+    // Sovereign only: its locked aim, smoothed flight, how far back a charge began, a phase it
+    // crosses from, and frozen hurt and death animations.
+    double aimX = SOVEREIGN_REACH;
+    double aimY = -1.5;
+    double aimZ;
+    double driftX;
+    double driftZ;
+    double chargeBack;
+    int phaseFrom;
+    int hurt;
+    int death;
     int timer;
     int age = 30;
     int phase = 1;
@@ -93,13 +122,42 @@ final class GalleryScenario {
     Shot(String name, Warden.Action action, int timer) {
       this.name = name;
       this.action = action;
+      this.sovereign = null;
       this.timer = timer;
+    }
+
+    Shot(String name, Sovereign.Action sovereign, int timer) {
+      this.name = name;
+      this.action = null;
+      this.sovereign = sovereign;
+      this.timer = timer;
+      this.look = SOVEREIGN_LOOK;
     }
 
     Shot from(Warden.Action previous, int age) {
       this.previous = previous;
       this.age = age;
       this.transition = true;
+      return this;
+    }
+
+    Shot from(Sovereign.Action previous, int age) {
+      this.sovereignPrevious = previous;
+      this.age = age;
+      this.transition = true;
+      return this;
+    }
+
+    Shot aim(double x, double y, double z) {
+      aimX = x;
+      aimY = y;
+      aimZ = z;
+      return this;
+    }
+
+    Shot drift(double x, double z) {
+      driftX = x;
+      driftZ = z;
       return this;
     }
 
@@ -118,6 +176,12 @@ final class GalleryScenario {
     Shot ahead(double lookAhead) {
       this.lookAhead = lookAhead;
       this.look = 0;
+      return this;
+    }
+
+    /** Looks this high above the platform, at a point ahead of the puppet. */
+    Shot looking(double look) {
+      this.look = look;
       return this;
     }
 
@@ -155,6 +219,7 @@ final class GalleryScenario {
   // The server moves on to the next shot a tick later; until then, do not take this one again.
   private int capturedShot = -1;
   private Warden puppet;
+  private Sovereign sovereign;
   private final List<Cinder> swarm = new ArrayList<Cinder>();
   private boolean originalHideGui;
   private float originalFov;
@@ -328,6 +393,120 @@ final class GalleryScenario {
     markNight.cinders = 3;
     markNight.marking = true;
     shots.add(markNight);
+    buildSovereign();
+  }
+
+  private void buildSovereign() {
+    Sovereign.Action hunt = Sovereign.Action.HUNT;
+    Sovereign.Action lance = Sovereign.Action.LANCE;
+    Sovereign.Action rush = Sovereign.Action.RUSH;
+    Sovereign.Action blast = Sovereign.Action.BLAST;
+    Sovereign.Action recover = Sovereign.Action.RECOVER;
+    // The model from every side, its flight, and its phases.
+    shots.add(new Shot("sov-p1-front", hunt, 0).camera(0, 7, 2.8));
+    shots.add(new Shot("sov-p1-three-quarter", hunt, 0).camera(35, 7, 3.4));
+    shots.add(new Shot("sov-p1-side", hunt, 0).camera(90, 7, 2.8));
+    shots.add(new Shot("sov-p1-back", hunt, 0).camera(180, 7, 3.4));
+    shots.add(new Shot("sov-p1-below", hunt, 0).camera(20, 6, 0.4));
+    shots.add(new Shot("sov-p1-night", hunt, 0).camera(25, 9, 2.8).night());
+    shots.add(new Shot("sov-pursuit", hunt, 0).drift(0.9, 0).camera(70, 8, 3));
+    shots.add(new Shot("sov-flank", hunt, 0).drift(0, 0.5).camera(10, 8, 3));
+    shots.add(new Shot("sov-p2-front", hunt, 0).phase(2).camera(20, 7, 2.8));
+    Shot shift = new Shot("sov-p2-shift", hunt, 0).phase(2).camera(20, 9, 3);
+    shift.phaseFrom = 1;
+    shots.add(shift);
+    shots.add(new Shot("sov-p3-front", hunt, 0).phase(3).camera(20, 7, 2.8));
+    shots.add(new Shot("sov-p3-three-quarter", hunt, 0).phase(3).camera(45, 7, 3.6));
+    shots.add(new Shot("sov-p3-night", hunt, 0).phase(3).camera(25, 9, 2.8).night());
+    // The Hex Lance: early and late windup, from the side, at night, off-axis, and its release.
+    shots.add(new Shot("sov-lance-early", lance, 20).camera(40, 9, 4).ahead(4).looking(1.6));
+    shots.add(new Shot("sov-lance-late", lance, 3).camera(40, 9, 4).ahead(4).looking(1.6));
+    shots.add(new Shot("sov-lance-side", lance, 6).camera(90, 11, 3).ahead(6).looking(1.6));
+    shots.add(new Shot("sov-lance-night", lance, 4).camera(40, 9, 4).ahead(4).looking(1.6).night());
+    shots.add(new Shot("sov-lance-offaxis", lance, 5).aim(16, 6, 12).camera(-30, 9, 4));
+    shots.add(
+        new Shot("sov-lance-release", recover, 19)
+            .from(lance, 1)
+            .camera(40, 9, 4)
+            .ahead(4)
+            .looking(1.6));
+    // The Ruin Rush: windup, the charge in flight, and the stop.
+    Sovereign.Action charge = Sovereign.Action.CHARGE;
+    shots.add(
+        new Shot("sov-rush-early", rush, 20)
+            .aim(SOVEREIGN_RUSH, -1, 0)
+            .camera(40, 9, 4)
+            .ahead(4)
+            .looking(1.6));
+    shots.add(
+        new Shot("sov-rush-late", rush, 3)
+            .aim(SOVEREIGN_RUSH, -1, 0)
+            .camera(40, 9, 4)
+            .ahead(4)
+            .looking(1.6));
+    shots.add(
+        new Shot("sov-rush-side", rush, 5)
+            .aim(SOVEREIGN_RUSH, -1, 0)
+            .camera(90, 11, 3)
+            .ahead(6)
+            .looking(1.6));
+    shots.add(
+        new Shot("sov-rush-night", rush, 4)
+            .aim(SOVEREIGN_RUSH, -1, 0)
+            .camera(40, 9, 4)
+            .ahead(4)
+            .looking(1.6)
+            .night());
+    Shot flight =
+        new Shot("sov-charge", charge, 3)
+            .aim(SOVEREIGN_RUSH, -1, 0)
+            .drift(2.5, 0)
+            .camera(60, 11, 3)
+            .ahead(-3)
+            .looking(1.6);
+    flight.chargeBack = 10;
+    shots.add(flight);
+    shots.add(
+        new Shot("sov-charge-brake", recover, 23)
+            .from(charge, 1)
+            .aim(SOVEREIGN_RUSH, -1, 0)
+            .camera(50, 9, 3));
+    // Crown Break: windup close and wide, by night, from inside, and its burst.
+    shots.add(new Shot("sov-blast-early", blast, 30).camera(30, 9, 3.5));
+    shots.add(new Shot("sov-blast-late", blast, 4).camera(30, 9, 3.5));
+    shots.add(new Shot("sov-blast-wide", blast, 6).camera(30, 26, 12));
+    shots.add(new Shot("sov-blast-wide-night", blast, 6).camera(30, 26, 12).night());
+    shots.add(new Shot("sov-blast-inside", blast, 8).camera(200, 8, 2.2));
+    shots.add(new Shot("sov-blast-release", recover, 26).from(blast, 2).camera(30, 26, 12));
+    shots.add(new Shot("sov-blast-release-close", recover, 25).from(blast, 3).camera(30, 11, 4));
+    // Openings, hits, the later phases' attacks, and death.
+    shots.add(new Shot("sov-exposed", recover, 12).from(lance, 12).camera(25, 7, 3));
+    shots.add(new Shot("sov-exposed-side", recover, 12).from(lance, 12).camera(90, 7, 3));
+    shots.add(new Shot("sov-exposed-p3", recover, 12).from(lance, 12).phase(3).camera(25, 7, 3));
+    Shot hurt = new Shot("sov-hurt", hunt, 0).camera(25, 7, 3);
+    hurt.hurt = 7;
+    shots.add(hurt);
+    shots.add(
+        new Shot("sov-p3-lance-late", lance, 3).phase(3).camera(40, 9, 4).ahead(4).looking(1.6));
+    shots.add(
+        new Shot("sov-p3-rush-late", rush, 3)
+            .phase(3)
+            .aim(SOVEREIGN_RUSH, -1, 0)
+            .camera(40, 9, 4)
+            .ahead(4)
+            .looking(1.6));
+    shots.add(new Shot("sov-p3-blast-late", blast, 4).phase(3).camera(30, 11, 4));
+    Shot dying = new Shot("sov-death-early", hunt, 0).phase(3).camera(25, 9, 3.5);
+    dying.death = 6;
+    shots.add(dying);
+    Shot dead = new Shot("sov-death-late", hunt, 0).phase(3).camera(25, 9, 3.5);
+    dead.death = 16;
+    shots.add(dead);
+  }
+
+  /** Server ticks the whole gallery may take: a picture takes about a second. */
+  int tickLimit() {
+    return START_TICKS + shots.size() * SHOT_TICKS;
   }
 
   // ---- Server: platform, time and camera position.
@@ -440,15 +619,38 @@ final class GalleryScenario {
     minecraft.thePlayer.motionX = minecraft.thePlayer.motionY = minecraft.thePlayer.motionZ = 0;
     clearAround(minecraft);
     clientTicks++;
+    if (clientTicks > SHOT_TICKS * 5) {
+      throw new IllegalStateException(
+          "Gallery "
+              + s.name
+              + " was never captured: "
+              + framedFrames
+              + " framed frames, camera at "
+              + minecraft.thePlayer.posX
+              + ", "
+              + minecraft.thePlayer.posY
+              + ", "
+              + minecraft.thePlayer.posZ
+              + (sovereign != null
+                  ? ", shown " + sovereignShown() + ", health " + sovereign.getHealth()
+                  : ""));
+    }
     drive(s);
   }
 
   private void respawn(Minecraft minecraft, Shot s) {
     minecraft.theWorld.removeEntityFromWorld(PUPPET_ID);
+    minecraft.theWorld.removeEntityFromWorld(SOVEREIGN_ID);
     for (int i = 0; i < swarm.size(); i++) {
       minecraft.theWorld.removeEntityFromWorld(CINDER_ID - i);
     }
     swarm.clear();
+    puppet = null;
+    sovereign = null;
+    if (s.sovereign != null) {
+      respawnSovereign(minecraft, s);
+      return;
+    }
     puppet = new Warden(minecraft.theWorld);
     double y = PLATFORM_Y + (s.action == Warden.Action.AIRBORNE ? AIRBORNE_HEIGHT : 0);
     place(puppet, cx, y, cz, -90);
@@ -493,7 +695,91 @@ final class GalleryScenario {
     BossCombat.writeFloat(puppet.getDataWatcher(), field("STRIKE_YAW"), -90);
   }
 
+  private void respawnSovereign(Minecraft minecraft, Shot s) {
+    sovereign = new Sovereign(minecraft.theWorld);
+    place(sovereign, cx, PLATFORM_Y + SOVEREIGN_HOVER, cz, -90);
+    minecraft.theWorld.addEntityToWorld(SOVEREIGN_ID, sovereign);
+    sovereignWatch("HEALTH", sovereignHealth(s.phaseFrom != 0 ? s.phaseFrom : s.phase, s));
+    sovereignWatch("TIMER", s.timer);
+    BossCombat.writeFloat(sovereign.getDataWatcher(), sovereignField("AIM_X"), s.aimX);
+    BossCombat.writeFloat(sovereign.getDataWatcher(), sovereignField("AIM_Y"), s.aimY);
+    BossCombat.writeFloat(sovereign.getDataWatcher(), sovereignField("AIM_Z"), s.aimZ);
+    if (s.transition) {
+      // Starts in the previous action; driveSovereign switches it so the picture lands at age.
+      sovereignWatch("ACTION", s.sovereignPrevious.ordinal());
+      set(sovereign, "shownAction", s.sovereignPrevious);
+    } else {
+      sovereignWatch("ACTION", s.sovereign.ordinal());
+      set(sovereign, "shownAction", s.sovereign);
+      set(sovereign, "previousAction", s.sovereignPrevious);
+    }
+    if (s.chargeBack > 0) {
+      set(
+          sovereign,
+          "chargeStart",
+          Vec3.createVectorHelper(
+              cx - s.chargeBack, PLATFORM_Y + SOVEREIGN_HOVER + s.chargeBack * 0.05, cz));
+    }
+  }
+
+  private static int sovereignHealth(int phase, Shot s) {
+    return s.death > 0 ? 0 : SOVEREIGN_HEALTH[phase - 1];
+  }
+
+  private void driveSovereign(Shot s) {
+    if (sovereign == null) {
+      return;
+    }
+    place(sovereign, cx, PLATFORM_Y + SOVEREIGN_HOVER, cz, -90);
+    if (clientTicks == SETTLE_TICKS) {
+      if (s.transition) {
+        sovereignWatch("ACTION", s.sovereign.ordinal());
+      }
+      if (s.phaseFrom != 0) {
+        sovereignWatch("HEALTH", sovereignHealth(s.phase, s));
+      }
+    }
+    if (!s.transition || sovereignPosed(s)) {
+      // Hold the pose still: freeze its age and timer.
+      sovereignWatch("TIMER", s.timer);
+      if (sovereignShown() == s.sovereign) {
+        set(sovereign, "actionAge", Integer.valueOf(s.age));
+      }
+    }
+    set(sovereign, "driftX", Double.valueOf(s.driftX));
+    set(sovereign, "driftZ", Double.valueOf(s.driftZ));
+    if (s.hurt > 0) {
+      sovereign.hurtTime = s.hurt;
+      sovereign.maxHurtTime = 10;
+    }
+    if (s.death > 0) {
+      sovereign.deathTime = s.death;
+    }
+  }
+
+  /** Whether a transition shot's puppet has reached its action and age. */
+  private boolean sovereignPosed(Shot s) {
+    int age = ((Integer) read(reflect(Sovereign.class, "actionAge"), sovereign)).intValue();
+    return sovereignShown() == s.sovereign && age >= s.age;
+  }
+
+  private Sovereign.Action sovereignShown() {
+    return (Sovereign.Action) read(reflect(Sovereign.class, "shownAction"), sovereign);
+  }
+
+  private void sovereignWatch(String name, int value) {
+    sovereign.getDataWatcher().updateObject(sovereignField(name), Integer.valueOf(value));
+  }
+
+  private static int sovereignField(String name) {
+    return constant(Sovereign.class, name);
+  }
+
   private void drive(Shot s) {
+    if (s.sovereign != null) {
+      driveSovereign(s);
+      return;
+    }
     if (puppet == null) {
       return;
     }
@@ -560,19 +846,26 @@ final class GalleryScenario {
     Shot s = shots.get(shownShot);
     // Looks at the body, or at a ground warning ahead of it (negative is behind it).
     double tx = cx + s.lookAhead;
-    double ty = PLATFORM_Y + s.look + (s.action == Warden.Action.AIRBORNE ? AIRBORNE_HEIGHT : 0);
+    double ty =
+        PLATFORM_Y
+            + s.look
+            + (s.action == Warden.Action.AIRBORNE ? AIRBORNE_HEIGHT : 0)
+            + (s.sovereign != null ? SOVEREIGN_HOVER : 0);
     face(minecraft.thePlayer, tx, ty, cz);
     if (!framed(minecraft.thePlayer, s)) {
       framedFrames = 0;
       return;
     }
     framedFrames++;
-    int ready =
-        SETTLE_TICKS + Math.max(s.transition ? s.age + 1 : 0, s.effect != 0 ? EFFECT_LEAD : 0);
+    boolean effect = s.effect != 0 || s.phaseFrom != 0;
+    int ready = SETTLE_TICKS + Math.max(s.transition ? s.age + 1 : 0, effect ? EFFECT_LEAD : 0);
     if (framedFrames < FRAMING_FRAMES || clientTicks < ready) {
       return;
     }
-    if (s.transition && (shownAction() != s.action || actionAge() < s.age)) {
+    if (s.transition
+        && (s.sovereign != null
+            ? sovereign == null || !sovereignPosed(s)
+            : shownAction() != s.action || actionAge() < s.age)) {
       return;
     }
     File evidence = new File(directory, "bosslab-evidence");
@@ -597,6 +890,7 @@ final class GalleryScenario {
       shot = shownShot + 1;
     } else {
       minecraft.theWorld.removeEntityFromWorld(PUPPET_ID);
+      minecraft.theWorld.removeEntityFromWorld(SOVEREIGN_ID);
       for (int i = 0; i < swarm.size(); i++) {
         minecraft.theWorld.removeEntityFromWorld(CINDER_ID - i);
       }
