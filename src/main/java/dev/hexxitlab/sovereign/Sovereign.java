@@ -43,6 +43,9 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData, L
   private static final int AIM_X = 23;
   private static final int AIM_Y = 24;
   private static final int AIM_Z = 25;
+  // Vanilla's hurt status; clients answer it with sparks.
+  private static final byte HURT_EFFECT = 2;
+  private static final double DRIFT_SMOOTHING = 0.35;
 
   public enum Action {
     HUNT,
@@ -64,6 +67,16 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData, L
   private boolean sampledTarget;
   private boolean previousBlast;
   private final Set<Integer> rushHits = new HashSet<Integer>();
+  // Client presentation only: the action being shown, since when, what it followed, the phase
+  // last shown, a smoothed flight velocity, and where a charge began.
+  private Action shownAction = Action.HUNT;
+  private Action previousAction = Action.HUNT;
+  private int actionAge;
+  private int shownPhase;
+  private double driftX;
+  private double driftY;
+  private double driftZ;
+  private Vec3 chargeStart;
 
   public Sovereign(World world) {
     super(world);
@@ -75,7 +88,7 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData, L
     renderDistanceWeight = 8;
     // Warnings extend far beyond the body; keep drawing them when the body is off-screen.
     ignoreFrustumCheck = true;
-    texture = "/mob/enderman.png";
+    texture = "/mods/hexxitbosslab/textures/entity/sovereign.png";
   }
 
   @Override
@@ -179,12 +192,23 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData, L
   }
 
   @Override
+  public void onUpdate() {
+    super.onUpdate();
+    if (worldObj.isRemote) {
+      // The body faces where the Sovereign aims, never where vanilla's flight turn would put it.
+      renderYawOffset = rotationYaw;
+      rotationYawHead = rotationYaw;
+    }
+  }
+
+  @Override
   public void onLivingUpdate() {
     super.onLivingUpdate();
     motionX = motionY = motionZ = 0;
     fallDistance = 0;
     if (worldObj.isRemote) {
       setEntityHealth(dataWatcher.getWatchableObjectInt(HEALTH));
+      present();
       return;
     }
     if (getHealth() <= 0) {
@@ -411,6 +435,64 @@ public final class Sovereign extends EntityFlying implements IBossDisplayData, L
     dataWatcher.updateObject(ACTION, Integer.valueOf(action.ordinal()));
     remaining = ticks;
     dataWatcher.updateObject(TIMER, Integer.valueOf(ticks));
+  }
+
+  /** Client presentation: follows the shown action and phase, smooths flight, plays effects. */
+  private void present() {
+    Action action = getAction();
+    if (action == shownAction) {
+      actionAge++;
+    } else {
+      previousAction = shownAction;
+      shownAction = action;
+      actionAge = 0;
+      if (action == Action.CHARGE) {
+        chargeStart = Vec3.createVectorHelper(posX, posY, posZ);
+      }
+      SovereignEffects.changed(this, previousAction, action);
+    }
+    int phase = getPhase();
+    if (shownPhase != 0 && phase != shownPhase) {
+      SovereignEffects.phase(this);
+    }
+    shownPhase = phase;
+    // Leaning follows its flight, not the uneven steps of position updates.
+    driftX += (posX - prevPosX - driftX) * DRIFT_SMOOTHING;
+    driftY += (posY - prevPosY - driftY) * DRIFT_SMOOTHING;
+    driftZ += (posZ - prevPosZ - driftZ) * DRIFT_SMOOTHING;
+    SovereignEffects.ambient(this);
+  }
+
+  @Override
+  public void handleHealthUpdate(byte status) {
+    super.handleHealthUpdate(status);
+    if (status == HURT_EFFECT) {
+      SovereignEffects.hurt(this);
+    }
+  }
+
+  /** The action clients are showing; it lags the synchronized action by at most a tick. */
+  Action getShownAction() {
+    return shownAction;
+  }
+
+  Action getPreviousAction() {
+    return previousAction;
+  }
+
+  /** Client ticks since the shown action began. */
+  int getActionAge() {
+    return actionAge;
+  }
+
+  /** Smoothed client flight velocity, in blocks per tick. */
+  Vec3 getDrift() {
+    return Vec3.createVectorHelper(driftX, driftY, driftZ);
+  }
+
+  /** Where the shown charge began, or null before any charge. */
+  Vec3 getChargeStart() {
+    return chargeStart;
   }
 
   @Override
